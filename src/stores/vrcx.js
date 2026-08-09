@@ -44,6 +44,7 @@ import { resetSearchIndexOnLogin } from '../coordinators/searchIndexCoordinator'
 import { watchState } from '../services/watchState';
 
 import { adapter, createAdapter } from '../services/database/adapter/index.js';
+import { normalizeNodeMode } from '../services/database/adapter/readOnlyGate.js';
 import configRepository from '../services/config';
 
 // 目标数据库版本
@@ -170,8 +171,51 @@ export const useVrcxStore = defineStore('Vrcx', () => {
                 0
             );
 
-            // ── 升级策略决策树 ─────────────────────────────────────
-            if (state.databaseVersion > 0) {
+            // ── 浏览模式旁路（BROWSE_MODE_M1_DESIGN.md §2.4 / §4.4）───
+            // browse 模式跳过整个升级决策树（Branch A/B）：只读连接无法
+            // 执行 runMigrations / initTables，版本号归 collector 维护。
+            // 改为 schema 探测 + 启动日志三连，随后继续启动（configs 表
+            // 缺失时 configRepository 走降级读，不崩溃）。
+            const nodeMode = normalizeNodeMode(
+                await VRCXStorage.Get('VRCX_NodeMode')
+            );
+            if (nodeMode === 'browse') {
+                // schema 探测：listTables 是读操作，只读门禁下透传。
+                // 探测失败不阻断启动（fail-safe，同 §4.4「不崩溃」语义）。
+                let configsTableExists = false;
+                try {
+                    const configsTables = await adapter.listTables('configs');
+                    configsTableExists =
+                        Array.isArray(configsTables) &&
+                        configsTables.length > 0;
+                } catch (err) {
+                    console.warn(
+                        '[browse] schema 探测失败:',
+                        err instanceof Error ? err.message : String(err)
+                    );
+                }
+                console.log(
+                    '[browse] 浏览模式（只读）已启用：VRCX_NodeMode=browse'
+                );
+                console.log(
+                    `[browse] 数据库版本：${state.databaseVersion}（目标 ${TARGET_DB_VERSION}）；` +
+                        `schema 探测：configs 表${configsTableExists ? '存在' : '缺失'}`
+                );
+                if (state.databaseVersion === 0) {
+                    console.warn(
+                        '[browse] 数据库版本未知（空库或从未初始化）。'
+                    );
+                } else if (state.databaseVersion < TARGET_DB_VERSION) {
+                    console.warn(
+                        `[browse] 库版本 ${state.databaseVersion} 低于当前 ${TARGET_DB_VERSION}，` +
+                            '浏览模式不执行升级；schema 可能不兼容，部分查询可能失败。' +
+                            '建议以 collector 模式启动一次完成升级。'
+                    );
+                }
+                console.log(
+                    '[browse] 只读：DB 写入被门禁丢弃；登录状态与本地设置不会持久化；建议单实例多账号'
+                );
+            } else if (state.databaseVersion > 0) {
                 // ── Branch A: 已有版本号的数据库 ──
                 if (state.databaseVersion < TARGET_DB_VERSION) {
                     const ok = await upgradeInPlace(
@@ -182,15 +226,13 @@ export const useVrcxStore = defineStore('Vrcx', () => {
                 } else if (state.databaseVersion > TARGET_DB_VERSION) {
                     console.warn(
                         `Database version ${state.databaseVersion} is ahead of built-in target ${TARGET_DB_VERSION}. ` +
-                        'Data written by a newer VRCX version may not be fully compatible.'
+                            'Data written by a newer VRCX version may not be fully compatible.'
                     );
                 }
                 // == target: 无事可做
             } else {
                 // ── Branch B: version <= 0 / null（版本丢失或全新库）──
-                const ok = await handleUninitializedDatabase(
-                    TARGET_DB_VERSION
-                );
+                const ok = await handleUninitializedDatabase(TARGET_DB_VERSION);
                 if (!ok) return;
             }
 
@@ -296,9 +338,7 @@ export const useVrcxStore = defineStore('Vrcx', () => {
     async function upgradeInPlace(fromVersion, targetVersion) {
         databaseUpgradeState.value.fromVersion = fromVersion;
         databaseUpgradeState.value.toVersion = targetVersion;
-        console.log(
-            `升级数据库从 ${fromVersion} 到 ${targetVersion}...`
-        );
+        console.log(`升级数据库从 ${fromVersion} 到 ${targetVersion}...`);
         try {
             await runFixes(targetVersion);
             await configRepository.setInt(
@@ -313,9 +353,7 @@ export const useVrcxStore = defineStore('Vrcx', () => {
             databaseUpgradeState.value.visible = false;
             await modalStore.alert({
                 title: t('message.database.upgrade_failed_title'),
-                description: t(
-                    'message.database.upgrade_failed_description'
-                ),
+                description: t('message.database.upgrade_failed_description'),
                 dismissible: false
             });
             AppApi.ShowDevTools();
@@ -341,11 +379,10 @@ export const useVrcxStore = defineStore('Vrcx', () => {
             console.warn('Failed to read backup config:', err);
         }
 
-    const bakDbName = bakConfig?.['VRCX_Database.name']
-        || bakConfig?.['VRCX_DatabaseLocation'];
-        const currentDbName = await VRCXStorage.Get(
-            'VRCX_Database.name'
-        );
+        const bakDbName =
+            bakConfig?.['VRCX_Database.name'] ||
+            bakConfig?.['VRCX_DatabaseLocation'];
+        const currentDbName = await VRCXStorage.Get('VRCX_Database.name');
 
         // Resolve both names to canonical paths for robust identity comparison.
         // Wrapped in try/catch because ResolveDatabaseName now validates paths
@@ -392,9 +429,7 @@ export const useVrcxStore = defineStore('Vrcx', () => {
      * 适用于全新安装、bak 为空、或 self-reference 去重后。
      */
     async function initAndFixInPlace(targetVersion) {
-        console.log(
-            '未找到有效的备份配置。正在原地初始化 + 修复...'
-        );
+        console.log('未找到有效的备份配置。正在原地初始化 + 修复...');
         databaseUpgradeState.value.fromVersion = 0;
         databaseUpgradeState.value.toVersion = targetVersion;
 
@@ -411,10 +446,9 @@ export const useVrcxStore = defineStore('Vrcx', () => {
             console.error('数据库初始化 + 修复失败:', err);
             await modalStore.alert({
                 title: t('message.database.repair_failed_title'),
-                description: t(
-                    'message.database.repair_failed_description',
-                    { error: err.message || String(err) }
-                ),
+                description: t('message.database.repair_failed_description', {
+                    error: err.message || String(err)
+                }),
                 dismissible: false
             });
             return false;
@@ -431,20 +465,20 @@ export const useVrcxStore = defineStore('Vrcx', () => {
      * @returns {Promise<boolean>}
      */
     async function migrateFromOldDb(oldPath, targetVersion) {
-        console.log(
-            `正在从旧数据库迁移数据: ${oldPath}`
-        );
+        console.log(`正在从旧数据库迁移数据: ${oldPath}`);
         databaseUpgradeState.value.fromVersion = -1; // 标记「迁移中」
         databaseUpgradeState.value.toVersion = targetVersion;
 
-        const oldDb = await createAdapter({ connection: `sqlite:///${oldPath}` });
+        const oldDb = await createAdapter({
+            connection: `sqlite:///${oldPath}`
+        });
 
         try {
             // 1) 读出旧库版本号
             const versionRows = [];
             await oldDb.execute(
                 (row) => versionRows.push(row),
-                "SELECT value FROM configs WHERE key = @key",
+                'SELECT value FROM configs WHERE key = @key',
                 { key: 'config:VRCX_databaseversion' }
             );
             const oldVersion =
@@ -475,10 +509,7 @@ export const useVrcxStore = defineStore('Vrcx', () => {
 
             // 5) 设版本号 — 保留旧库和目标版本中的较高值，避免降级
             const finalVersion = Math.max(oldVersion, targetVersion);
-            await configRepository.setInt(
-                'VRCX_databaseVersion',
-                finalVersion
-            );
+            await configRepository.setInt('VRCX_databaseVersion', finalVersion);
             state.databaseVersion = finalVersion;
             console.log('数据库迁移完成。');
             return true;
@@ -486,10 +517,9 @@ export const useVrcxStore = defineStore('Vrcx', () => {
             console.error('数据库迁移失败:', err);
             await modalStore.alert({
                 title: t('message.database.repair_failed_title'),
-                description: t(
-                    'message.database.repair_failed_description',
-                    { error: err.message || String(err) }
-                ),
+                description: t('message.database.repair_failed_description', {
+                    error: err.message || String(err)
+                }),
                 dismissible: false
             });
             AppApi.ShowDevTools();

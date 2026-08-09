@@ -3,6 +3,7 @@ import InteropApi from '../ipc-electron/interopApi.js';
 import configRepository from '../services/config.js';
 import vrcxJsonStorage from '../services/jsonStorage.js';
 import { initAdapter } from '../services/database/adapter/index.js';
+import { normalizeNodeMode } from '../services/database/adapter/readOnlyGate.js';
 
 /**
  * Snapshot of the persisted `VRCX_Database.*` keys read at boot, i.e. the
@@ -111,25 +112,30 @@ export async function initInteropApi(isVrOverlay = false) {
         // truth for "what the live adapter is actually connected to this
         // session" — see `bootDbConfig` doc above. Read alongside `dbMode`
         // so the snapshot and the adapter init see a consistent view.
-        const [dbHost, dbPort, dbUser, dbPass, dbName] = await Promise.all([
-            VRCXStorage.Get('VRCX_Database.host'),
-            VRCXStorage.Get('VRCX_Database.port'),
-            VRCXStorage.Get('VRCX_Database.username'),
-            VRCXStorage.Get('VRCX_Database.password'),
-            VRCXStorage.Get('VRCX_Database.name')
-        ]);
+        // `VRCX_NodeMode` is read in the same batch: browse mode boots the
+        // adapter wrapped in the read-only gate (see readOnlyGate.js), so
+        // the gate decision and the connection snapshot see one consistent
+        // startup view.
+        const [dbHost, dbPort, dbUser, dbPass, dbName, rawNodeMode] =
+            await Promise.all([
+                VRCXStorage.Get('VRCX_Database.host'),
+                VRCXStorage.Get('VRCX_Database.port'),
+                VRCXStorage.Get('VRCX_Database.username'),
+                VRCXStorage.Get('VRCX_Database.password'),
+                VRCXStorage.Get('VRCX_Database.name'),
+                VRCXStorage.Get('VRCX_NodeMode')
+            ]);
         const bootMode =
             typeof dbMode === 'string' && dbMode ? dbMode : 'sqlite';
         bootDbConfig.mode = bootMode;
         bootDbConfig.host =
             typeof dbHost === 'string' && dbHost ? dbHost : 'localhost';
         bootDbConfig.port = typeof dbPort === 'string' ? dbPort : '';
-        bootDbConfig.username =
-            typeof dbUser === 'string' ? dbUser : '';
-        bootDbConfig.password =
-            typeof dbPass === 'string' ? dbPass : '';
+        bootDbConfig.username = typeof dbUser === 'string' ? dbUser : '';
+        bootDbConfig.password = typeof dbPass === 'string' ? dbPass : '';
         bootDbConfig.name = typeof dbName === 'string' ? dbName : '';
-        await initAdapter(bootMode);
+        const bootNodeMode = normalizeNodeMode(rawNodeMode);
+        await initAdapter(bootMode, { readOnly: bootNodeMode === 'browse' });
 
         await configRepository.init();
         new vrcxJsonStorage(VRCXStorage);
