@@ -120,7 +120,7 @@ node_registry (
 | 基建 | 位置 | 状态 |
 |---|---|---|
 | `onTableChange` 完备层（外部写者检测） | `EngineAdapter.js` + 三引擎计数器 | ✅ 已实现 + 测试 |
-| 只读连接串 | SQLiteAdapter `_buildConnectionString`（`Read Only`）等 | ✅ 已支持 |
+| 只读连接串 | SQLiteAdapter `_buildConnectionString`（`Read Only`）等 | ❌ 待实现（M1 完成）：M1 仅 SQLite C# 池只读；PG/MySQL 排 M2（机制已验证） |
 | 账号前缀体系 | `userTable(prefix, name)` | ✅ 已实现 |
 | `withTransaction` 栈 | EngineAdapter | ✅ 已实现（outbox 语义基础） |
 | `VRCXStorage` 配置体系 | CONFIG_REFACTOR 设计 | ✅ 已实现 |
