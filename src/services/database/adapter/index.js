@@ -1,5 +1,6 @@
 import { SQLiteAdapter } from './SQLiteAdapter.js';
 import { setChangeGateHook } from './EngineAdapter.js';
+import { createReadOnlyAdapter } from './readOnlyGate.js';
 import InteropApi from '../../../ipc-electron/interopApi.js';
 
 // ── Engine singleton & lazy-load policy ──────────────────────────────
@@ -75,6 +76,37 @@ let _initializedMode = 'sqlite';
 
 /** @type {Promise<import('./EngineAdapter.js').EngineAdapter> | null} */
 let _initPromise = null;
+
+// ── 浏览模式只读门禁（§2.2 H-1 / §4）───────────────────────────────
+//
+// `initAdapter(mode, { readOnly: true })`（browse 模式）时对单例 adapter 做
+// 单次 Proxy 包装：21 个写方法 no-op，读方法/事务 API 透传。包装动作在
+// initAdapter 双分支（sqlite 复用 / 非 sqlite 新建）收敛，两处返回值均为包装
+// 实例；`_gatedInstances` WeakSet 同时登记原始实例与包装后代理，保证同一
+// 实例（或代理本身）不会被包两次。`createAdapter` 实例不门禁（§4.5 边界
+// 声明：调用方自控连接串）。
+
+/** @type {WeakSet<object>} 已门禁实例（防双重包装） */
+const _gatedInstances = new WeakSet();
+
+/**
+ * 应用只读门禁：`readOnly` 为真且实例尚未门禁时包装一次并登记。
+ *
+ * @param {import('./EngineAdapter.js').EngineAdapter} instance - 当前单例
+ * @param {boolean} readOnly - initAdapter `options.readOnly`（启动即定，
+ *   运行中切换属 M3）
+ * @returns {import('./EngineAdapter.js').EngineAdapter} 门禁后的实例
+ *   （readOnly 缺省/false 时原样返回，collector 行为零变化）
+ */
+function _applyReadOnlyGate(instance, readOnly) {
+    if (!readOnly || _gatedInstances.has(instance)) return instance;
+    const gated = createReadOnlyAdapter(instance);
+    // 原始实例与包装后代理都登记：同一 inner 不会被包两次，且重复
+    // initAdapter 调用传回代理时也不会再包一层。
+    _gatedInstances.add(instance);
+    _gatedInstances.add(gated);
+    return gated;
+}
 
 /**
  * Normalise an engine mode token.
@@ -243,9 +275,12 @@ export function wireFunnelEvents() {
  * database operation runs.
  *
  * @param {string} [mode='sqlite'] - 'sqlite' | 'postgresql' | 'mysql' | 'mariadb'
+ * @param {{ readOnly?: boolean }} [options] - 浏览模式只读门禁开关（§2.2）：
+ *   `readOnly: true` 时单例被包装为只读 Proxy（21 个写方法 no-op）；缺省/false
+ *   时零行为变化（collector 回归线）。启动即定，运行中切换属 M3。
  * @returns {Promise<import('./EngineAdapter.js').EngineAdapter>}
  */
-export async function initAdapter(mode = 'sqlite') {
+export async function initAdapter(mode = 'sqlite', options = {}) {
     const normalized = _normalizeMode(mode);
     wireFunnelEvents();
     // 启动时无订阅 → 门控关闭;首个 onTableChange 订阅经钩子开启。
@@ -262,6 +297,7 @@ export async function initAdapter(mode = 'sqlite') {
             adapter = new SQLiteAdapter();
         }
         _initializedMode = 'sqlite';
+        adapter = _applyReadOnlyGate(adapter, options.readOnly === true);
         return adapter;
     }
 
@@ -274,18 +310,24 @@ export async function initAdapter(mode = 'sqlite') {
         );
     }
 
-    // Already initialised for this mode — return the singleton.
+    // Already initialised for this mode — return the singleton. The
+    // short-circuit must still apply the readOnly gate (MEDIUM-3, qa):
+    // collector 首启后同进程再以 readOnly:true 调用 → 返回包装实例并换绑
+    // live binding,与 sqlite 分支对称;WeakSet 幂等保证不重复包。
     if (_initializedMode === normalized && adapter) {
+        adapter = _applyReadOnlyGate(adapter, options.readOnly === true);
         return adapter;
     }
 
     // If a different mode's init is in flight, await it before starting
     // our own so we don't race on the `adapter` binding. After awaiting,
     // re-check in case the in-flight init was for our mode after all
-    // (e.g. two concurrent postgresql calls).
+    // (e.g. two concurrent postgresql calls). Same readOnly gate as the
+    // short-circuit above (MEDIUM-3, qa).
     if (_initPromise) {
         await _initPromise;
         if (_initializedMode === normalized && adapter) {
+            adapter = _applyReadOnlyGate(adapter, options.readOnly === true);
             return adapter;
         }
     }
@@ -293,7 +335,8 @@ export async function initAdapter(mode = 'sqlite') {
     // Begin lazy load. The promise is shared with concurrent same-mode
     // callers; cross-mode callers will await it above and then start
     // their own.
-    _initPromise = spec.load()
+    _initPromise = spec
+        .load()
         .then((mod) => {
             // `mod` is `Record<string, unknown>` — cast the class back
             // out so it is constructable at the type level.
@@ -305,7 +348,10 @@ export async function initAdapter(mode = 'sqlite') {
                     `initAdapter: adapter module did not export ${spec.className}`
                 );
             }
-            adapter = new AdapterClass();
+            adapter = _applyReadOnlyGate(
+                new AdapterClass(),
+                options.readOnly === true
+            );
             _initializedMode = normalized;
             _initPromise = null;
             return adapter;
@@ -374,9 +420,7 @@ async function createAdapter(config) {
         );
     }
     const mod = await spec.load();
-    const AdapterClass = /** @type {EngineAdapterCtor} */ (
-        mod[spec.className]
-    );
+    const AdapterClass = /** @type {EngineAdapterCtor} */ (mod[spec.className]);
     if (!AdapterClass) {
         throw new Error(
             `createAdapter: adapter module did not export ${spec.className}`
