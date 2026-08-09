@@ -59,9 +59,15 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
     <PackageReference Include="FluentAssertions" Version="6.12.2" />
     <PackageReference Include="coverlet.collector" Version="6.0.2" />
+    <!-- NLog 6.1.3 (与生产 pin 一致, 见 VRCX-Cef.csproj L104) —
+         M1 S2 NodeMode.cs 非法值 logger.Warn 使用 LogManager.GetCurrentClassLogger。
+         无 NLog.config 时日志为 no-op, 不影响断言。 -->
+    <PackageReference Include="NLog" Version="6.1.3" />
     <!-- System.Data.SQLite needed because Link'd SQLite.cs references SQLiteConnection in Init().
          v2.0.3 targets netstandard2.0 (No dependencies), pure managed, cross-platform.
-         Security tests don't call Init(), so native SQLite runtime is NOT required at test time. -->
+         Security tests don't call Init(), so native SQLite runtime is NOT required at test time.
+         M1 S2 browse 真库测试会真实打开连接, 需要 native SQLite.Interop.dll (win-x64 由包内
+         build targets 拷贝到输出目录)。 -->
     <PackageReference Include="System.Data.SQLite" Version="2.0.3" />
     <!-- Npgsql 10.0.3 + MySqlConnector 2.6.1 (与生产 pin 一致, 见 VRCX-Cef.csproj L105/114):
          Link'd PostgreSQL.cs / MySQL.cs 引用 NpgsqlDataSource / MySqlConnection 等类型。
@@ -69,6 +75,11 @@
          connId 归一化早抛点, 不建立真实连接, 故不触发 native 运行时。 -->
     <PackageReference Include="Npgsql" Version="10.0.3" />
     <PackageReference Include="MySqlConnector" Version="2.6.1" />
+    <!-- SourceGear.sqlite3 3.50.4.5 (与生产 pin 一致, 见 VRCX-Cef.csproj L112):
+         System.Data.SQLite 2.0.3 托管层 P/Invoke 原生 e_sqlite3 库;M1 S2 browse 真库
+         测试 (INSERT/DDL readonly 拒绝 / SELECT 正常) 需要真实打开连接, 由本包提供
+         runtimes/win-x64/native/e_sqlite3.dll。 -->
+    <PackageReference Include="SourceGear.sqlite3" Version="3.50.4.5" />
   </ItemGroup>
 
   <ItemGroup>
@@ -88,6 +99,10 @@
          早抛点, 不调 Init()/SetChangeEnabled, 不触碰 .Instance 静态。 -->
     <Compile Include="..\PostgreSQL.cs" Link="PostgreSQL.cs" />
     <Compile Include="..\MySQL.cs" Link="MySQL.cs" />
+    <!-- NodeMode.cs Link 进来 (M1 S2): SQLite.Init() 浏览模式判定 + NodeModeTests 直接
+         调用内部成员 (同 assembly 可见, 不需 InternalsVisibleTo)。依赖 NLog + VRCXStorage
+         (Stubs\ 隐式编译)。 -->
+    <Compile Include="..\NodeMode.cs" Link="NodeMode.cs" />
   </ItemGroup>
 
 </Project>

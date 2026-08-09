@@ -8,12 +8,14 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Reflection;
+using NLog;
 
 namespace VRCX
 {
     public class SQLite : IAuthStore
     {
         public static SQLite Instance;
+        private static readonly Logger logger = LogManager.GetCurrentClassLogger();
         private string _connectionString;
         private bool _initialized;
 
@@ -195,13 +197,27 @@ namespace VRCX
             var name = VRCXStorage.Instance.Get("VRCX_Database.name");
             var dataSource = ValidateAndCanonicalizeDatabasePath(name);
 
+            // ── 浏览模式判定 (M1 §2.5 MEDIUM-5):在读取 VRCX_Database 配置之后、连接串构造之前 ──
+            // 归一化契约与 JS readOnlyGate.normalizeNodeMode 等价:仅显式 'browse' 生效,
+            // 其余 (auto/collector/空/非法) → collector (fail-safe)。
+            var nodeMode = NodeMode.Normalize(VRCXStorage.Instance.Get("VRCX_NodeMode"));
+            var isReadOnly = nodeMode == "browse";
+
+            // ── 缺文件前置检查 (M1 §4.4 MEDIUM-4):browse + 文件不存在 → fail-fast 可行动报错 ──
+            // 不降级为可写打开 (违反 backstop 原则);裸 "unable to open database file"
+            // 无法指导用户,此处给出可行动文案。
+            if (isReadOnly && !File.Exists(dataSource))
+            {
+                throw new InvalidOperationException(
+                    $"浏览模式：数据库文件不存在：{dataSource}。请先以 collector 模式启动一次完成初始化，或检查 VRCX_Database.name 配置。");
+            }
+
             var dir = Path.GetDirectoryName(dataSource);
             if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
             {
                 Directory.CreateDirectory(dir);
             }
 
-            var mergedOptions = CollectOptions();
             var parts = new List<string>
             {
                 $"Data Source=\"{dataSource}\"",
@@ -245,15 +261,29 @@ namespace VRCX
                 "Pooling=True",
                 "Max Pool Size=16"
             };
-            foreach (var (key, val) in mergedOptions)
+            if (isReadOnly)
             {
-                var sanitized = SanitizePragmaValue(key, val);
-                parts.Add($"PRAGMA {key}={sanitized}");
+                // 浏览模式只读连接串:Data Source + Version=3 + Read Only=True +
+                // Pooling + Max Pool Size;跳过 CollectOptions() 产生的四个 PRAGMA —
+                // journal_mode=WAL 与 optimize 在只读连接上是写操作会抛错,
+                // busy_timeout / locking_mode 对只读连接无意义。(M1 §5 / R2)
+                parts.Insert(2, "Read Only=True");
+            }
+            else
+            {
+                // collector 分支:连接串构造逐字符不变 (M1 验收硬性回归线,SQLiteBridgeTests 断言)。
+                var mergedOptions = CollectOptions();
+                foreach (var (key, val) in mergedOptions)
+                {
+                    var sanitized = SanitizePragmaValue(key, val);
+                    parts.Add($"PRAGMA {key}={sanitized}");
+                }
             }
             _connectionString = string.Join(";", parts);
             _maxPoolSize = 16; // 连接字符串硬编码 Max Pool Size=16
             _initialized = true;
             Debug.Assert(_maxPoolSize == 16, "_maxPoolSize must match connection string Max Pool Size");
+            logger.Info("SQLite: node mode={0} readOnly={1}", nodeMode, isReadOnly);
         }
 
         /// <summary>

@@ -46,6 +46,14 @@ namespace VRCX
 
         public void Init()
         {
+            // 浏览模式 (VRCX_NodeMode=browse):不启动日志采集线程 (切片计划 S2 / H-2)。
+            // 设计 v2 §2.6 核实:LogWatcher 无 C# 直写,仅 :297 ExecuteScriptAsync 推事件进 JS;
+            // browse 下跳过启动避免采集线程空转。collector/auto 行为不变。
+            if (NodeMode.IsBrowseMode())
+            {
+                logger.Info("LogWatcher: 浏览模式 (node mode=browse)，跳过日志采集启动");
+                return;
+            }
             var logPath = Program.AppApiInstance.GetVRChatAppDataLocation();
             m_LogDirectoryInfo = new DirectoryInfo(logPath);
             m_LogContextMap = new Dictionary<string, LogContext>();
@@ -63,6 +71,8 @@ namespace VRCX
             threadActive = false;
             var thread = m_Thread;
             m_Thread = null;
+            if (thread == null) // 浏览模式未启动,或重复 Exit
+                return;
             thread.Interrupt();
             thread.Join();
         }
@@ -1373,6 +1383,12 @@ namespace VRCX
 
         public string[][] Get()
         {
+            // 浏览模式 (M1 S2):Init() 跳过线程启动,m_LogList 等采集字段为 null —
+            // 直接返回空 (无采集线程 → 无新日志行);DB 读路径不受影响。
+            if (m_LogList == null)
+            {
+                return new string[][] { };
+            }
             Update();
 
             if (m_ResetLog == false &&
