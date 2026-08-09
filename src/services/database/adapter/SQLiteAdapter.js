@@ -1,5 +1,10 @@
 import { EngineAdapter } from './EngineAdapter.js';
 
+// Once-per-process dedup for the readonly-error warn (L-1 / browse mode):
+// a single misleading modal was replaced by a recognizable warn — repeated
+// readonly rejections (e.g. browse backstop writes) must not spam the log.
+const _readonlyWarnedMessages = new Set();
+
 /**
  * SQLite dialect adapter.
  *
@@ -64,13 +69,30 @@ class SQLiteAdapter extends EngineAdapter {
         )
             throw e;
         const msg = e.message;
+        const isReadOnly = msg.includes('attempt to write a readonly database');
         const isMalformed = msg.includes('database disk image is malformed');
         const isFull = msg.includes('database or disk is full');
-        const isLocked =
-            msg.includes('database is locked') ||
-            msg.includes('attempt to write a readonly database');
+        const isLocked = msg.includes('database is locked');
         const isIO = msg.includes('disk I/O error');
-        if (!isMalformed && !isFull && !isLocked && !isIO) throw e;
+        if (!isReadOnly && !isMalformed && !isFull && !isLocked && !isIO)
+            throw e;
+
+        // Readonly rejection is expected when the pool is opened read-only
+        // (browse mode backstop for writes bypassing the gate) — log once
+        // and rethrow instead of showing the misleading "Database is locked"
+        // modal. The caller still receives the underlying error.
+        if (isReadOnly) {
+            if (!_readonlyWarnedMessages.has(msg)) {
+                _readonlyWarnedMessages.add(msg);
+                // F-2 日志注入防护：SQLite 错误消息可内嵌 SQL 语句与绑定数据
+                // （feed 等用户内容），只输出稳定摘要不回显原始消息；去重仍按
+                // 完整消息文本（同消息不刷屏），原始错误完整 rethrow 给调用方。
+                console.warn(
+                    '[browse] SQLite 只读错误（写入被拒绝，SQLITE_READONLY）'
+                );
+            }
+            throw e;
+        }
 
         const [{ useModalStore }, { i18n }, { openExternalLink }] =
             await Promise.all([

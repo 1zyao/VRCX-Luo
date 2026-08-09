@@ -19,6 +19,29 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { MemorySQLiteAdapter } from '../../migrations/__tests__/memoryAdapter.js';
 
+// `handleSQLiteError` dynamically imports the modal store / i18n /
+// appActions — stub them so the error-mapping tests (section 12) can
+// assert modal behaviour deterministically.
+const { modalMock, openExternalLinkMock } = vi.hoisted(() => ({
+    modalMock: {
+        confirm: vi.fn(() => Promise.resolve({ ok: false })),
+        alert: vi.fn()
+    },
+    openExternalLinkMock: vi.fn()
+}));
+
+vi.mock('../../../../stores/modal', () => ({
+    useModalStore: () => modalMock
+}));
+
+vi.mock('../../../../plugins/i18n', () => ({
+    i18n: { global: { t: (key) => key } }
+}));
+
+vi.mock('../../../../shared/utils/appActions', () => ({
+    openExternalLink: openExternalLinkMock
+}));
+
 let db;
 let adapter;
 
@@ -1387,5 +1410,72 @@ describe('SQL fragments + JS utilities — sqlToUnixMs / sqlExtractWorldId / sql
     test('daysAgoISO() is a pure JS function — no DB access needed', () => {
         // Verify it works without any seeded DB state.
         expect(typeof adapter.daysAgoISO(1)).toBe('string');
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// 12. handleSQLiteError — error mapping (browse-mode M1, L-1 / M7)
+//
+// A readonly rejection must NOT be mapped to the "Database is locked"
+// modal — it warns once (per message, per process) and rethrows. The
+// locked/malformed/full/IO branches keep their original behaviour.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('handleSQLiteError — error mapping (L-1)', () => {
+    beforeEach(() => {
+        modalMock.alert.mockClear();
+        modalMock.confirm.mockClear();
+        openExternalLinkMock.mockClear();
+    });
+
+    test('readonly error: warns once, no modal, still rethrows', async () => {
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const err = new Error('attempt to write a readonly database');
+        await expect(adapter.handleSQLiteError(err)).rejects.toBe(err);
+        // Repeated readonly rejections are deduped — still exactly one warn.
+        await expect(adapter.handleSQLiteError(err)).rejects.toBe(err);
+        expect(modalMock.alert).not.toHaveBeenCalled();
+        expect(modalMock.confirm).not.toHaveBeenCalled();
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        warnSpy.mockRestore();
+    });
+
+    test('readonly error: warn 文案不回显原始 SQL/绑定数据（F-2 防日志注入）', async () => {
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        // 模拟真实 SQLite 只读错误：消息内嵌 SQL 语句与用户内容（feed 消息体）。
+        // 修复前 warn 原样拼接 msg → 用户内容可被写入本地日志；修复后只输出
+        // 稳定摘要（错误类型标识），原始错误仍完整 rethrow 给调用方。
+        const secret = 'SENSITIVE_PAYLOAD_7f3a';
+        const err = new Error(
+            'attempt to write a readonly database\n' +
+                `INSERT INTO feed_gps (user_id, message) VALUES (@uid, @msg) -- '${secret}'`
+        );
+        await expect(adapter.handleSQLiteError(err)).rejects.toBe(err);
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        const text = warnSpy.mock.calls[0][0];
+        expect(text).toContain('SQLITE_READONLY');
+        expect(text).not.toContain('INSERT INTO');
+        expect(text).not.toContain('feed_gps');
+        expect(text).not.toContain(secret);
+        // 原始错误完整保留给调用方（rethrow 不被截断/改写）
+        expect(err.message).toContain(secret);
+        warnSpy.mockRestore();
+    });
+
+    test('"database is locked" still maps to the locked modal branch', async () => {
+        const err = new Error('database is locked');
+        await expect(adapter.handleSQLiteError(err)).rejects.toBe(err);
+        expect(modalMock.alert).toHaveBeenCalledTimes(1);
+        expect(modalMock.alert.mock.calls[0][0].title).toBe(
+            'Database is locked'
+        );
+        expect(modalMock.confirm).not.toHaveBeenCalled();
+    });
+
+    test('unrelated errors bypass all branches and rethrow without modal', async () => {
+        const err = new Error('no such table: configs');
+        await expect(adapter.handleSQLiteError(err)).rejects.toBe(err);
+        expect(modalMock.alert).not.toHaveBeenCalled();
+        expect(modalMock.confirm).not.toHaveBeenCalled();
     });
 });

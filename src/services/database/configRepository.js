@@ -1,5 +1,9 @@
 import { adapter } from './adapter/index.js';
 
+// Once-per-process guard for the missing-`configs`-table degrade warning
+// (browse mode + uninitialized database, design §4.4 / MEDIUM-4).
+let _configsTableMissingWarned = false;
+
 function transformKey(key) {
     return `config:${String(key).toLowerCase()}`;
 }
@@ -19,9 +23,32 @@ class ConfigRepository {
 
     async getString(key, defaultValue = null) {
         const _key = transformKey(key);
-        const row = await adapter.selectOne('configs', ['value'], {
-            key: _key
-        });
+        let row;
+        try {
+            row = await adapter.selectOne('configs', ['value'], {
+                key: _key
+            });
+        } catch (e) {
+            // Browse mode may read a database that has never been initialized
+            // by a collector run — degrade to the default value (warn once)
+            // instead of crashing; all other errors keep the original
+            // rethrow behaviour.
+            // MySQL 变体: MySqlConnector 报 `Table 'db.configs' doesn't exist`
+            // (MEDIUM-2, qa);SQLite `no such table` / PG `does not exist` 一并覆盖。
+            if (
+                e instanceof Error &&
+                /no such table|doesn'?t exist|does not exist/i.test(e.message)
+            ) {
+                if (!_configsTableMissingWarned) {
+                    _configsTableMissingWarned = true;
+                    console.warn(
+                        `[browse] configs 表不存在，读取降级为默认值: ${key}`
+                    );
+                }
+                return defaultValue;
+            }
+            throw e;
+        }
         const value = row ? row[0] : undefined;
         if (value === null || value === undefined || value === 'undefined') {
             return defaultValue;
