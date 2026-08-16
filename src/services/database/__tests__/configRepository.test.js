@@ -111,3 +111,46 @@ describe('configRepository degrade reads (missing configs table)', () => {
         );
     });
 });
+
+describe('configRepository 大值写入触发列升级（MySQL Data too long 修复）', () => {
+    test('setString 写入超过 60KB → 先调 initValueColumnsLongText 再 insert', async () => {
+        adapterMock.insert = vi.fn().mockResolvedValue(0);
+        adapterMock.initValueColumnsLongText = vi
+            .fn()
+            .mockResolvedValue();
+        const repo = new ConfigRepository();
+        const big = 'x'.repeat(61000);
+        await repo.setString('big.key', big);
+        expect(adapterMock.initValueColumnsLongText).toHaveBeenCalledTimes(1);
+        expect(adapterMock.insert).toHaveBeenCalledWith(
+            'configs',
+            { key: 'config:big.key', value: big },
+            'replace'
+        );
+        delete adapterMock.initValueColumnsLongText;
+        delete adapterMock.insert;
+    });
+
+    test('setString 小值不触发列升级（避免逐写探测开销）', async () => {
+        adapterMock.insert = vi.fn().mockResolvedValue(0);
+        adapterMock.initValueColumnsLongText = vi
+            .fn()
+            .mockResolvedValue();
+        const repo = new ConfigRepository();
+        await repo.setString('small.key', 'hi');
+        expect(adapterMock.initValueColumnsLongText).not.toHaveBeenCalled();
+        expect(adapterMock.insert).toHaveBeenCalledTimes(1);
+        delete adapterMock.initValueColumnsLongText;
+        delete adapterMock.insert;
+    });
+
+    test('引擎无 initValueColumnsLongText（SQLite/PG）→ 防御式跳过', async () => {
+        adapterMock.insert = vi.fn().mockResolvedValue(0);
+        delete adapterMock.initValueColumnsLongText;
+        const repo = new ConfigRepository();
+        const big = 'x'.repeat(61000);
+        await expect(repo.setString('big.key', big)).resolves.toBeUndefined();
+        expect(adapterMock.insert).toHaveBeenCalledTimes(1);
+        delete adapterMock.insert;
+    });
+});

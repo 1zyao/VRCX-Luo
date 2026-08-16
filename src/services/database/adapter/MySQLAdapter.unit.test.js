@@ -288,6 +288,96 @@ describe('SQL 构建器标识符转义', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────
+// Bug: MySQL 旧库 configs/cookies 的 value 列过小
+// 旧 schema 的 value 列可能是 TEXT(64KB 上限)/VARCHAR,CREATE TABLE IF NOT
+// EXISTS 不升级既有列 → VRC 设置数据备份工具写入大 JSON(整个 Registry 备份
+// 列表)或写入序列化 Cookie 时报 "Data too long for column 'value'"。
+// _ensureLongTextColumn 探测 INFORMATION_SCHEMA 后仅在非 longtext 时
+// ALTER MODIFY,幂等且零多余写。
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('_ensureLongTextColumn(旧库 value 列升级)', () => {
+    /** @type {MySQLAdapter} */
+    let adapter;
+
+    beforeEach(() => {
+        adapter = new MySQLAdapter();
+        adapter.executeNonQuery = vi.fn().mockResolvedValue(0);
+        adapter.execute = vi
+            .fn()
+            .mockImplementation(async (cb) => cb(['text']));
+    });
+
+    it('列已是 longtext → 跳过 ALTER(零写)', async () => {
+        adapter.execute = vi
+            .fn()
+            .mockImplementation(async (cb) => cb(['longtext']));
+        await adapter._ensureLongTextColumn('configs', 'value');
+        expect(adapter.execute).toHaveBeenCalledTimes(1);
+        expect(adapter.executeNonQuery).not.toHaveBeenCalled();
+    });
+
+    it('DATA_TYPE 大小写不敏感(LONGTEXT 亦跳过)', async () => {
+        adapter.execute = vi
+            .fn()
+            .mockImplementation(async (cb) => cb(['LONGTEXT']));
+        await adapter._ensureLongTextColumn('cookies', 'value');
+        expect(adapter.executeNonQuery).not.toHaveBeenCalled();
+    });
+
+    it('列是 TEXT(旧 schema)→ ALTER MODIFY LONGTEXT + 反引号转义', async () => {
+        await adapter._ensureLongTextColumn('configs', 'value');
+        expect(adapter.executeNonQuery).toHaveBeenCalledTimes(1);
+        expect(adapter.executeNonQuery.mock.calls[0][0]).toBe(
+            'ALTER TABLE `configs` MODIFY `value` LONGTEXT'
+        );
+        // 探测用 INFORMATION_SCHEMA + 命名参数
+        expect(adapter.execute.mock.calls[0][1]).toContain(
+            'INFORMATION_SCHEMA.COLUMNS'
+        );
+        expect(adapter.execute.mock.calls[0][2]).toEqual({
+            table: 'configs',
+            column: 'value'
+        });
+    });
+
+    it('列不存在 → 跳过(零 SQL 写)', async () => {
+        adapter.execute = vi.fn().mockImplementation(async () => {});
+        await adapter._ensureLongTextColumn('configs', 'value');
+        expect(adapter.executeNonQuery).not.toHaveBeenCalled();
+    });
+
+    it('initValueColumnsLongText 依次升级 cookies 与 configs 的 value', async () => {
+        adapter._ensureLongTextColumn = vi.fn().mockResolvedValue();
+        await adapter.initValueColumnsLongText();
+        expect(adapter._ensureLongTextColumn).toHaveBeenCalledTimes(2);
+        expect(adapter._ensureLongTextColumn).toHaveBeenNthCalledWith(
+            1,
+            'cookies',
+            'value'
+        );
+        expect(adapter._ensureLongTextColumn).toHaveBeenNthCalledWith(
+            2,
+            'configs',
+            'value'
+        );
+    });
+
+    it('ALTER 失败仅 warn、不抛出(启动期维护操作不拖垮启动)', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        adapter.executeNonQuery = vi
+            .fn()
+            .mockRejectedValue(new Error('ALTER denied'));
+        await expect(
+            adapter._ensureLongTextColumn('configs', 'value')
+        ).resolves.toBeUndefined();
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(warn.mock.calls[0][0]).toContain('LONGTEXT 失败');
+        warn.mockRestore();
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
 // Bug: MySQL 原生模式二次启动 `Duplicate key name` 冒泡(Uncaught in promise)
 // 旧实现靠 catch `e.message.includes('Duplicate key name')` 幂等,但 C# 桥
 // reject 形态可能是纯字符串(`e.message` 为 undefined)→ catch 失效冒泡。

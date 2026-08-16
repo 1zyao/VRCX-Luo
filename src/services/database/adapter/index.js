@@ -80,7 +80,7 @@ let _initPromise = null;
 // ── 浏览模式只读门禁（§2.2 H-1 / §4）───────────────────────────────
 //
 // `initAdapter(mode, { readOnly: true })`（browse 模式）时对单例 adapter 做
-// 单次 Proxy 包装：21 个写方法 no-op，读方法/事务 API 透传。包装动作在
+// 单次 Proxy 包装：22 个写方法 no-op，读方法/事务 API 透传。包装动作在
 // initAdapter 双分支（sqlite 复用 / 非 sqlite 新建）收敛，两处返回值均为包装
 // 实例；`_gatedInstances` WeakSet 同时登记原始实例与包装后代理，保证同一
 // 实例（或代理本身）不会被包两次。`createAdapter` 实例不门禁（§4.5 边界
@@ -276,7 +276,7 @@ export function wireFunnelEvents() {
  *
  * @param {string} [mode='sqlite'] - 'sqlite' | 'postgresql' | 'mysql' | 'mariadb'
  * @param {{ readOnly?: boolean }} [options] - 浏览模式只读门禁开关（§2.2）：
- *   `readOnly: true` 时单例被包装为只读 Proxy（21 个写方法 no-op）；缺省/false
+ *   `readOnly: true` 时单例被包装为只读 Proxy（22 个写方法 no-op）；缺省/false
  *   时零行为变化（collector 回归线）。启动即定，运行中切换属 M3。
  * @returns {Promise<import('./EngineAdapter.js').EngineAdapter>}
  */

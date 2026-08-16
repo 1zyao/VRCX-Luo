@@ -59,6 +59,16 @@ class ConfigRepository {
     async setString(key, value) {
         const _key = transformKey(key);
         const _value = String(value);
+        // 大 JSON 写入前确保 MySQL configs.value 列为 LONGTEXT(旧库/新库在
+        // configRepository.init 建表时都可能是 TEXT,64KB 上限 → 写入 VRChat
+        // Registry 备份等大值报 "Data too long for column 'value'")。
+        // 仅对超过安全阈值(接近 64KB)的值触发;幂等(已为 longtext 则探测跳过);
+        // SQLite/PG 文本列无界,无此方法,防御式 `?.` 自动跳过。
+        // 不在启动(configRepository.init)执行 ALTER,避免与登录初始化并发
+        // 干扰登录态持久化——升级推迟到真正需要大写入的时刻(通常已登录)。
+        if (new TextEncoder().encode(_value).length > 60000) {
+            await adapter.initValueColumnsLongText?.();
+        }
         await adapter.insert(
             'configs',
             { key: _key, value: _value },
