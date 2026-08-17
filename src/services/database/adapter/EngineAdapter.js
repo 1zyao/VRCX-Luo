@@ -60,6 +60,31 @@ class EngineAdapter {
      */
     _txStack = [];
 
+    /**
+     * 事务串行队列尾(并发安全)。withTransaction 把本次执行 append 到链尾,
+     * 让并发调用按到达顺序串行执行,而非"栈非空即抛错"。
+     *
+     * 背景:TRANSACTION_DESIGN.md 的"JS 单线程:无并发打断,栈操作原子"
+     * 假设在异步下不成立——withTransaction 内部 `await fn()` 会把控制权交还
+     * 事件循环,两个独立异步流(WS feed 写入、用户对话框刷新等)可以时间交错。
+     * 若栈非空即抛错,后到者会被误判为"嵌套"而失败;若放行则两个事务同时
+     * 存在,SQL 全部打到同一个 pinned 连接导致 C# 侧连接损坏。
+     * 串行队列让同一 adapter 实例同时只有一个事务,兼顾原子性与并发安全。
+     *
+     * @type {Promise<void>}
+     * @protected
+     */
+    _txTail = Promise.resolve();
+
+    /**
+     * 当前是否正在执行某个事务 fn 的同步段。
+     * 用于区分"真正的调用栈嵌套"(withTransaction 在另一个 withTransaction
+     * 的 fn 同步段内被调用 → 应抛错)与"并发异步流交错"(应排队等待)。
+     * @type {boolean}
+     * @protected
+     */
+    _txInFn = false;
+
     constructor() {
         if (new.target === EngineAdapter) {
             throw new TypeError(
@@ -654,7 +679,9 @@ class EngineAdapter {
      *
      * - 成功:commit + pop 栈
      * - 抛错:rollback + pop 栈 + 重新抛出
-     * - 嵌套:栈非空时抛错(不支持嵌套事务)
+     * - 真正的调用栈嵌套(在另一个 withTransaction 的 fn 同步段内再次
+     *   调用)→ 抛错(不支持嵌套事务)
+     * - 并发调用(不同异步流在时间上交错)→ 串行排队等待,不抛错
      *
      * ⚠️ 事务内禁止 await 用户交互(对话框、输入框等)。C# 侧有
      * 60 秒 idle 超时自动回滚,用户不在电脑前会导致事务被静默
@@ -677,26 +704,51 @@ class EngineAdapter {
      * @returns {Promise<T>}
      */
     async withTransaction(fn) {
-        if (this._txStack.length > 0) {
+        // 真正的调用栈嵌套:在另一个事务 fn 的同步段内再次调用,直接抛错。
+        // (并发异步流的交错不会经过这里——它们在 `_txInFn` 为 false 时进入。)
+        if (this._txInFn) {
             throw new Error('withTransaction: 不支持嵌套事务(当前已在事务中)');
         }
-        const connId = await this.beginTransaction();
+        // 串行化:append 到队列尾,前面的 withTransaction 完成后再执行。
+        const prev = this._txTail;
+        let release;
+        this._txTail = new Promise((resolve) => {
+            release = resolve;
+        });
+        await prev;
         try {
-            const result = await fn();
-            await this.commit(connId);
-            return result;
-        } catch (err) {
+            const connId = await this.beginTransaction();
             try {
-                await this.rollback(connId);
-            } catch (rollbackErr) {
-                // 不掩盖原始业务错误,但记录 rollback 失败供诊断
-                // (连接断、SQLite 损坏等,否则完全无日志)
-                console.error(
-                    '[adapter] withTransaction rollback 失败:',
-                    rollbackErr
-                );
+                // 只在 fn 的同步前缀期间标记嵌套(异步 fn 的同步段会执行到
+                // 首个 await 后立即返回 Promise)。真正的调用栈嵌套(在另一个
+                // withTransaction 的 fn 同步段内再次调用)发生在该前缀内 →
+                // 被上面 `_txInFn` 检查捕获;并发调用在 fn 挂起后进入,
+                // 此时 `_txInFn` 已复位,走串行队列而非抛错。
+                let resultPromise;
+                this._txInFn = true;
+                try {
+                    resultPromise = fn();
+                } finally {
+                    this._txInFn = false;
+                }
+                const result = await resultPromise;
+                await this.commit(connId);
+                return result;
+            } catch (err) {
+                try {
+                    await this.rollback(connId);
+                } catch (rollbackErr) {
+                    // 不掩盖原始业务错误,但记录 rollback 失败供诊断
+                    // (连接断、SQLite 损坏等,否则完全无日志)
+                    console.error(
+                        '[adapter] withTransaction rollback 失败:',
+                        rollbackErr
+                    );
+                }
+                throw err;
             }
-            throw err;
+        } finally {
+            release();
         }
     }
 
@@ -1028,7 +1080,9 @@ class EngineAdapter {
      */
     onTableChange(table, cb) {
         if (typeof table !== 'string' || table.length === 0) {
-            throw new TypeError('onTableChange: table must be a non-empty string');
+            throw new TypeError(
+                'onTableChange: table must be a non-empty string'
+            );
         }
         if (typeof cb !== 'function') {
             throw new TypeError('onTableChange: cb must be a function');
@@ -1165,7 +1219,10 @@ class EngineAdapter {
                     cb({ table, count: -1, ts });
                 } catch (err) {
                     // 订阅方异常不阻断其他订阅者与轮询循环
-                    console.error(`[onTableChange] subscriber error for ${table}`, err);
+                    console.error(
+                        `[onTableChange] subscriber error for ${table}`,
+                        err
+                    );
                 }
             }
         }
