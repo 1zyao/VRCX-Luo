@@ -112,6 +112,50 @@ describe('栈式事务上下文', () => {
         const count = await adapter.countWhere('test_t');
         expect(count).toBe(2);
     });
+
+    test('并发 withTransaction(时间交错)→ 串行排队,不抛嵌套错', async () => {
+        // 两个独立异步流在时间上交错(内部 await 让出事件循环),
+        // 旧实现第二个会抛"不支持嵌套事务",新实现应串行等待而非抛错。
+        const events = [];
+        const makeFlow = (label, id) =>
+            adapter.withTransaction(async () => {
+                events.push(`${label}-start`);
+                await adapter.insert('test_t', { id, val: label });
+                await new Promise((r) => setTimeout(r, 5));
+                events.push(`${label}-end`);
+            });
+        const [a, b] = await Promise.all([
+            makeFlow('flowA', 1),
+            makeFlow('flowB', 2)
+        ]);
+        expect(a).toBeUndefined();
+        expect(b).toBeUndefined();
+        expect(adapter._txStack).toHaveLength(0);
+        // 串行执行:flowA 完整结束(含内层 await)后 flowB 才进入
+        expect(events.indexOf('flowB-start')).toBeGreaterThan(
+            events.indexOf('flowA-end')
+        );
+        const count = await adapter.countWhere('test_t');
+        expect(count).toBe(2);
+    });
+
+    test('并发 withTransaction 抛错不影响后续事务', async () => {
+        const results = await Promise.allSettled([
+            adapter.withTransaction(async () => {
+                await adapter.insert('test_t', { id: 1, val: 'ok' });
+                throw new Error('boom-a');
+            }),
+            adapter.withTransaction(async () => {
+                await adapter.insert('test_t', { id: 2, val: 'ok' });
+            })
+        ]);
+        expect(results[0].status).toBe('rejected');
+        expect(results[0].reason?.message).toBe('boom-a');
+        expect(results[1].status).toBe('fulfilled');
+        expect(adapter._txStack).toHaveLength(0);
+        const count = await adapter.countWhere('test_t');
+        expect(count).toBe(1); // 失败事务已回滚,成功事务已提交
+    });
 });
 
 describe('手动 beginTransaction / commit / rollback', () => {
@@ -168,8 +212,8 @@ describe('实例隔离(srcAdapter vs dstAdapter)', () => {
 
         const count1 = await adapter.countWhere('test_t');
         const count2 = await adapter2.countWhere('test_t');
-        expect(count1).toBe(1);  // committed
-        expect(count2).toBe(0);  // rolled back
+        expect(count1).toBe(1); // committed
+        expect(count2).toBe(0); // rolled back
 
         db2.close();
     });
@@ -198,14 +242,16 @@ describe('事务内读未 commit 的写(关键正确性)', () => {
     });
 
     test('事务 rollback 后,事务内的写不可见', async () => {
-        await adapter.withTransaction(async () => {
-            await adapter.insert('test_t', { id: 1, val: 'will-rollback' });
-            const count = await adapter.countWhere('test_t');
-            expect(count).toBe(1);  // 事务内可见
-            throw new Error('rollback-test');
-        }).catch(() => {});
+        await adapter
+            .withTransaction(async () => {
+                await adapter.insert('test_t', { id: 1, val: 'will-rollback' });
+                const count = await adapter.countWhere('test_t');
+                expect(count).toBe(1); // 事务内可见
+                throw new Error('rollback-test');
+            })
+            .catch(() => {});
         const count = await adapter.countWhere('test_t');
-        expect(count).toBe(0);  // 回滚后不可见
+        expect(count).toBe(0); // 回滚后不可见
     });
 });
 
