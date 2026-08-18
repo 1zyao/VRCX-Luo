@@ -218,6 +218,16 @@ describe('栈式事务上下文', () => {
         expect(result).toContain('超时');
         expect(result).not.toBe('HUNG');
         expect(adapter._txStack).toHaveLength(0);
+
+        // 关键回归:超时抛错后队列不得中毒,同一 adapter 仍能正常提交事务。
+        // (旧版超时 reject 发生在 try/finally 之外,release() 不执行,
+        // 之后每次 withTransaction 都会等满超时才抛错。)
+        await adapter.withTransaction(async () => {
+            await adapter.insert('test_t', { id: 99, val: 'after-timeout' });
+        });
+        const after = await adapter.countWhere('test_t');
+        expect(after).toBe(1); // 只有超时后这 1 条(id=1/2 已被外层回滚)
+        expect(adapter._txStack).toHaveLength(0);
     });
 });
 

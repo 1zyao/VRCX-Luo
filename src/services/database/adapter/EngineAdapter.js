@@ -733,25 +733,27 @@ class EngineAdapter {
         this._txTail = new Promise((resolve) => {
             release = resolve;
         });
-        // await 前序事务,带超时兜底防死锁:
-        // - 正常并发:prev 在 A 提交后 resolve,不等超时
-        // - await 后嵌套:外层要等内层返回才 release → prev 永不 resolve
-        //   → 超时抛错,避免永久挂起(旧实现在此抛"不支持嵌套事务")
-        await Promise.race([
-            prev,
-            new Promise((_, reject) =>
-                setTimeout(
-                    () =>
-                        reject(
-                            new Error(
-                                'withTransaction: 等待前序事务超时(疑似嵌套事务死锁)'
-                            )
-                        ),
-                    this._txWaitTimeoutMs
-                )
-            )
-        ]);
+        // 整个等待 + 事务执行包进 try/finally,保证 release() 在任意路径
+        // (正常提交、事务抛错、等待超时)都被调用,推进队列尾。
         try {
+            // await 前序事务,带超时兜底防死锁:
+            // - 正常并发:prev 在 A 提交后 resolve,不等超时
+            // - await 后嵌套:外层要等内层返回才 release → prev 永不 resolve
+            //   → 超时抛错,避免永久挂起(旧实现在此抛"不支持嵌套事务")
+            await Promise.race([
+                prev,
+                new Promise((_, reject) =>
+                    setTimeout(
+                        () =>
+                            reject(
+                                new Error(
+                                    'withTransaction: 等待前序事务超时(疑似嵌套事务死锁)'
+                                )
+                            ),
+                        this._txWaitTimeoutMs
+                    )
+                )
+            ]);
             const connId = await this.beginTransaction();
             try {
                 // 只在 fn 的同步前缀期间标记嵌套:异步函数 `fn()` 会同步执行
