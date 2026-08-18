@@ -77,13 +77,30 @@ class EngineAdapter {
     _txTail = Promise.resolve();
 
     /**
-     * 当前是否正在执行某个事务 fn 的同步段。
-     * 用于区分"真正的调用栈嵌套"(withTransaction 在另一个 withTransaction
-     * 的 fn 同步段内被调用 → 应抛错)与"并发异步流交错"(应排队等待)。
+     * 当前是否正在执行某个事务 fn 的同步前缀。
+     * 用于快速识别"同步调用栈嵌套"(withTransaction 在另一个 withTransaction
+     * 的 fn 同步段内被调用 → 立即抛错)。
+     *
+     * 注意:该标记只覆盖 fn 的同步前缀(异步函数执行到首个 await 前)。
+     * `await` 之后的嵌套调用无法由此检测,交给 `_txTail` 队列的超时兜底
+     * (见 withTransaction:等待队列超时抛错,防止死锁)。
      * @type {boolean}
      * @protected
      */
     _txInFn = false;
+
+    /**
+     * withTransaction 等待前序事务的最大时长(ms)。
+     *
+     * 正常并发排队:前序事务完成后 `prev` resolve,等待时长 = 前序事务实际
+     * 执行时间(毫秒级),远小于此超时,不会误触发。
+     * 嵌套死锁:外层事务 fn 内 await 后再次调用 withTransaction → 内层入队
+     * 等待,而外层要等内层返回才释放队列 → `prev` 永不 resolve → 超时抛错,
+     * 防止永久挂起(旧实现直接抛"不支持嵌套事务",业务可 catch 降级)。
+     * @type {number}
+     * @protected
+     */
+    _txWaitTimeoutMs = 30000;
 
     constructor() {
         if (new.target === EngineAdapter) {
@@ -704,26 +721,45 @@ class EngineAdapter {
      * @returns {Promise<T>}
      */
     async withTransaction(fn) {
-        // 真正的调用栈嵌套:在另一个事务 fn 的同步段内再次调用,直接抛错。
-        // (并发异步流的交错不会经过这里——它们在 `_txInFn` 为 false 时进入。)
+        // 快速失败:同步调用栈嵌套(在另一个事务 fn 的同步段内再次调用)。
+        // 并发异步流的交错不会经过这里——它们在 `_txInFn` 复位后进入。
         if (this._txInFn) {
             throw new Error('withTransaction: 不支持嵌套事务(当前已在事务中)');
         }
         // 串行化:append 到队列尾,前面的 withTransaction 完成后再执行。
+        // 并发场景(独立异步流交错):B 在此排队等待 A 提交后释放,然后安全执行。
         const prev = this._txTail;
         let release;
         this._txTail = new Promise((resolve) => {
             release = resolve;
         });
-        await prev;
+        // await 前序事务,带超时兜底防死锁:
+        // - 正常并发:prev 在 A 提交后 resolve,不等超时
+        // - await 后嵌套:外层要等内层返回才 release → prev 永不 resolve
+        //   → 超时抛错,避免永久挂起(旧实现在此抛"不支持嵌套事务")
+        await Promise.race([
+            prev,
+            new Promise((_, reject) =>
+                setTimeout(
+                    () =>
+                        reject(
+                            new Error(
+                                'withTransaction: 等待前序事务超时(疑似嵌套事务死锁)'
+                            )
+                        ),
+                    this._txWaitTimeoutMs
+                )
+            )
+        ]);
         try {
             const connId = await this.beginTransaction();
             try {
-                // 只在 fn 的同步前缀期间标记嵌套(异步 fn 的同步段会执行到
-                // 首个 await 后立即返回 Promise)。真正的调用栈嵌套(在另一个
+                // 只在 fn 的同步前缀期间标记嵌套:异步函数 `fn()` 会同步执行
+                // 到首个 await 后立即返回 Promise。同步调用栈嵌套(在另一个
                 // withTransaction 的 fn 同步段内再次调用)发生在该前缀内 →
-                // 被上面 `_txInFn` 检查捕获;并发调用在 fn 挂起后进入,
-                // 此时 `_txInFn` 已复位,走串行队列而非抛错。
+                // 被入口处 `_txInFn` 检查立即捕获。fn 挂起后 `_txInFn` 复位,
+                // 并发调用在此时进入不会误判;await 后的嵌套交给 `await prev`
+                // 的超时兜底(见上),既防死锁又不错杀并发。
                 let resultPromise;
                 this._txInFn = true;
                 try {
