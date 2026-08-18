@@ -68,13 +68,10 @@ echo.
 echo [INFO] Building Backend...
 :: Stop only parent processes. CEF children share the same executable name and
 :: must be allowed to exit naturally after their parent process closes.
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-    "$exe = [IO.Path]::GetFullPath('%~dp0build\Cef\VRCX-K.exe');" ^
-    "$parents = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue ^| Where-Object { $_.Name -eq 'VRCX-K.exe' -and $_.ExecutablePath -eq $exe -and $_.CommandLine -notmatch '--type=' };" ^
-    "$parents ^| ForEach-Object { Stop-Process -Id $_.ProcessId -Force };" ^
-    "$deadline = (Get-Date).AddSeconds(10);" ^
-    "do { Start-Sleep -Milliseconds 250; $remaining = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue ^| Where-Object { $_.Name -eq 'VRCX-K.exe' -and $_.ExecutablePath -eq $exe } } while ($remaining -and (Get-Date) -lt $deadline);" ^
-    "if ($remaining) { Write-Error ('CEF processes did not exit: ' + ($remaining.ProcessId -join ', ')); exit 1 }"
+:: 单行 -Command(双引号包裹):cmd 对双引号内的 | & ( ) 等特殊字符不解析,
+:: 避免了旧版多行 ^| 转义在 cmd /c 嵌套调用下失效、PowerShell 收到 ^| 而报
+:: 语法错、导致脚本中途退出、后续 xcopy 步骤从未执行的问题。
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$exe=[IO.Path]::GetFullPath('%~dp0build\Cef\VRCX-K.exe'); $all=Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq 'VRCX-K.exe' -and $_.ExecutablePath -eq $exe -and $_.CommandLine -notmatch '--type=' }; $all | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }; $deadline=(Get-Date).AddSeconds(10); do { Start-Sleep -Milliseconds 250; $remaining=Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq 'VRCX-K.exe' -and $_.ExecutablePath -eq $exe } } while ($remaining -and (Get-Date) -lt $deadline); if ($remaining) { Write-Error ('CEF processes did not exit: '+($remaining.ProcessId -join ', ')); exit 1 }"
 if %errorlevel% neq 0 (
     echo [ERROR] Failed to stop the running CEF test build safely.
     exit /b 1
