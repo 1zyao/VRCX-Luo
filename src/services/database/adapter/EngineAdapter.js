@@ -97,10 +97,14 @@ class EngineAdapter {
      * 嵌套死锁:外层事务 fn 内 await 后再次调用 withTransaction → 内层入队
      * 等待,而外层要等内层返回才释放队列 → `prev` 永不 resolve → 超时抛错,
      * 防止永久挂起(旧实现直接抛"不支持嵌套事务",业务可 catch 降级)。
+     *
+     * 默认 60s,与 C# 侧事务 idle 上限 `TX_IDLE_MS = 60000` 对齐:前序事务
+     * 可经 keepAlive 合法存活至 60s,等待超时必须 >= 该上限,否则排队调用
+     * 会被误判为死锁而抛错。
      * @type {number}
      * @protected
      */
-    _txWaitTimeoutMs = 30000;
+    _txWaitTimeoutMs = 60000;
 
     constructor() {
         if (new.target === EngineAdapter) {
@@ -735,15 +739,17 @@ class EngineAdapter {
         });
         // 整个等待 + 事务执行包进 try/finally,保证 release() 在任意路径
         // (正常提交、事务抛错、等待超时)都被调用,推进队列尾。
+        let waitTimer;
         try {
             // await 前序事务,带超时兜底防死锁:
             // - 正常并发:prev 在 A 提交后 resolve,不等超时
             // - await 后嵌套:外层要等内层返回才 release → prev 永不 resolve
             //   → 超时抛错,避免永久挂起(旧实现在此抛"不支持嵌套事务")
+            // 超时阈值默认 60s,对齐 C# 事务 idle 上限,避免误伤合法长事务。
             await Promise.race([
                 prev,
-                new Promise((_, reject) =>
-                    setTimeout(
+                new Promise((_, reject) => {
+                    waitTimer = setTimeout(
                         () =>
                             reject(
                                 new Error(
@@ -751,8 +757,8 @@ class EngineAdapter {
                                 )
                             ),
                         this._txWaitTimeoutMs
-                    )
-                )
+                    );
+                })
             ]);
             const connId = await this.beginTransaction();
             try {
@@ -786,6 +792,7 @@ class EngineAdapter {
                 throw err;
             }
         } finally {
+            clearTimeout(waitTimer);
             release();
         }
     }
