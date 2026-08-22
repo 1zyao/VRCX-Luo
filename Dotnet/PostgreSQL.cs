@@ -551,9 +551,9 @@ namespace VRCX
             }
             EnsureInitialized();
             Interlocked.Increment(ref _totalBorrowed);
-            using var connection = _dataSource.OpenConnection();
             try
             {
+                using var connection = _dataSource.OpenConnection();
                 Interlocked.Increment(ref _activeCount);
                 try
                 {
@@ -595,9 +595,9 @@ namespace VRCX
             }
             EnsureInitialized();
             Interlocked.Increment(ref _totalBorrowed);
-            using var connection = _dataSource.OpenConnection();
             try
             {
+                using var connection = _dataSource.OpenConnection();
                 Interlocked.Increment(ref _activeCount);
                 try
                 {
@@ -760,9 +760,9 @@ namespace VRCX
                 {
                     var sw = Stopwatch.StartNew();
                     Interlocked.Increment(ref _totalBorrowed);
-                    using var conn = _dataSource.OpenConnection();
                     try
                     {
+                        using var conn = _dataSource.OpenConnection();
                         using var cmd = conn.CreateCommand();
                         cmd.CommandText = "SELECT 1";
                         cmd.ExecuteScalar();
@@ -801,9 +801,9 @@ namespace VRCX
             try
             {
                 Interlocked.Increment(ref _totalBorrowed);
-                using var conn = _dataSource.OpenConnection();
                 try
                 {
+                    using var conn = _dataSource.OpenConnection();
                     using var cmd = conn.CreateCommand();
                     cmd.CommandText = "SELECT 1";
                     cmd.ExecuteScalar();
@@ -1016,13 +1016,29 @@ namespace VRCX
                 cs => NpgsqlDataSource.Create(cs));
             var connId = Interlocked.Increment(ref _nextConnId);
             Interlocked.Increment(ref _totalBorrowed);
-            var conn = dataSource.OpenConnection();
-            var tx = conn.BeginTransaction();
-            var holder = new TxHolder { Conn = conn, Tx = tx, ConnLabel = connectionString };
-            holder.Timer = new Timer(
-                _ => OnTxTimeout(connId), null, TX_IDLE_MS, -1);
-            _pinned[connId] = holder;
-            return connId;
+            try
+            {
+                var conn = dataSource.OpenConnection();
+                try
+                {
+                    var tx = conn.BeginTransaction();
+                    var holder = new TxHolder { Conn = conn, Tx = tx, ConnLabel = connectionString };
+                    holder.Timer = new Timer(
+                        _ => OnTxTimeout(connId), null, TX_IDLE_MS, -1);
+                    _pinned[connId] = holder;
+                    return connId;
+                }
+                catch
+                {
+                    conn.Dispose();
+                    throw;
+                }
+            }
+            finally
+            {
+                if (!_pinned.ContainsKey(connId))
+                    Interlocked.Decrement(ref _totalBorrowed);
+            }
         }
 
         /// <summary>
@@ -1040,13 +1056,29 @@ namespace VRCX
             EnsureInitialized();
             var connId = Interlocked.Increment(ref _nextConnId);
             Interlocked.Increment(ref _totalBorrowed);
-            var conn = _dataSource.OpenConnection();
-            var tx = conn.BeginTransaction();
-            var holder = new TxHolder { Conn = conn, Tx = tx, ConnLabel = ChangeConnDefault };
-            holder.Timer = new Timer(
-                _ => OnTxTimeout(connId), null, TX_IDLE_MS, -1);
-            _pinned[connId] = holder;
-            return connId;
+            try
+            {
+                var conn = _dataSource.OpenConnection();
+                try
+                {
+                    var tx = conn.BeginTransaction();
+                    var holder = new TxHolder { Conn = conn, Tx = tx, ConnLabel = ChangeConnDefault };
+                    holder.Timer = new Timer(
+                        _ => OnTxTimeout(connId), null, TX_IDLE_MS, -1);
+                    _pinned[connId] = holder;
+                    return connId;
+                }
+                catch
+                {
+                    conn.Dispose();
+                    throw;
+                }
+            }
+            finally
+            {
+                if (!_pinned.ContainsKey(connId))
+                    Interlocked.Decrement(ref _totalBorrowed);
+            }
         }
 
         /// <summary>
