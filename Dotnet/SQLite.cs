@@ -524,10 +524,10 @@ namespace VRCX
                     var sw = Stopwatch.StartNew();
                     var b = Interlocked.Increment(ref _totalBorrowed);
                     UpdatePeak(b);
-                    using var conn = new SQLiteConnection(_connectionString);
-                    conn.Open();
                     try
                     {
+                        using var conn = new SQLiteConnection(_connectionString);
+                        conn.Open();
                         using var cmd = conn.CreateCommand();
                         cmd.CommandText = "SELECT 1";
                         cmd.ExecuteScalar();
@@ -567,10 +567,10 @@ namespace VRCX
             {
                 var b = Interlocked.Increment(ref _totalBorrowed);
                 UpdatePeak(b);
-                using var conn = new SQLiteConnection(_connectionString);
-                conn.Open();
                 try
                 {
+                    using var conn = new SQLiteConnection(_connectionString);
+                    conn.Open();
                     using var cmd = conn.CreateCommand();
                     cmd.CommandText = "SELECT 1";
                     cmd.ExecuteScalar();
