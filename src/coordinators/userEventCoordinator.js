@@ -160,6 +160,8 @@ export async function runHandleUserUpdateFlow(
         ref.$previousLocation = props.location[1];
         ref.$travelingToTime = now();
     }
+    // 触发：缩略图（或其他模型相关字段）变化 → 进入下面的探测
+    // （imageMatches：缩略图新旧相等 → 视为未触发）
     let imageMatches = false;
     if (
         props.currentAvatarThumbnailImageUrl &&
@@ -236,26 +238,33 @@ export async function runHandleUserUpdateFlow(
             } catch (err) {
                 console.log(err);
             }
-            feed = {
-                created_at: nowIso(),
-                type: 'Avatar',
-                userId: ref.id,
-                displayName: ref.displayName,
-                ownerId: avatarInfo.ownerId,
-                previousOwnerId: previousAvatarInfo.ownerId,
-                avatarName: avatarInfo.avatarName,
-                previousAvatarName: previousAvatarInfo.avatarName,
-                currentAvatarImageUrl,
-                currentAvatarThumbnailImageUrl,
-                previousCurrentAvatarImageUrl,
-                previousCurrentAvatarThumbnailImageUrl,
-                currentAvatarTags,
-                previousCurrentAvatarTags
-            };
-            notificationStore.queueFeedNoty(feed);
-            sharedFeedStore.addEntry(feed);
-            feedStore.addFeedEntry(feed);
-            database.addAvatarToDatabase(feed);
+            // 验证：模型实际是否变更（与全量同步同源 —— 以模型图片 URL 为准）
+            // 图片 URL 未变（仅缩略图/标签变化，如启动时离线好友缩略图 空→有值、
+            // 自定义头像占位图等）→ 不是真实换模型 → 不落库。
+            // 注意：diffObjectProps 会把"新旧相等"的图片字段从 props 中删除，故须
+            // 比较含 ref 回退后的有效值 cur vs prev。
+            if (currentAvatarImageUrl !== previousCurrentAvatarImageUrl) {
+                feed = {
+                    created_at: nowIso(),
+                    type: 'Avatar',
+                    userId: ref.id,
+                    displayName: ref.displayName,
+                    ownerId: avatarInfo.ownerId,
+                    previousOwnerId: previousAvatarInfo.ownerId,
+                    avatarName: avatarInfo.avatarName,
+                    previousAvatarName: previousAvatarInfo.avatarName,
+                    currentAvatarImageUrl,
+                    currentAvatarThumbnailImageUrl,
+                    previousCurrentAvatarImageUrl,
+                    previousCurrentAvatarThumbnailImageUrl,
+                    currentAvatarTags,
+                    previousCurrentAvatarTags
+                };
+                notificationStore.queueFeedNoty(feed);
+                sharedFeedStore.addEntry(feed);
+                feedStore.addFeedEntry(feed);
+                database.addAvatarToDatabase(feed);
+            }
         }
     }
     // if status is offline, ignore status and statusDescription
