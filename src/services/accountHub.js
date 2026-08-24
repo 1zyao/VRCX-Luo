@@ -11,6 +11,7 @@
 import { reactive, toRaw, watch } from 'vue';
 import { AccountSession } from './accountSession.js';
 import { dbVars } from './database/index.js';
+import { useVrcxStore } from '../stores/vrcx';
 import { watchState } from './watchState.js';
 
 // ── Colour palette for account badges ──────────────────────────────────────────
@@ -139,6 +140,9 @@ export const accountHub = {
      * @param {object} savedEntry  Saved credential entry from configRepository.
      */
     async addSession(savedEntry) {
+        if (useVrcxStore().isBrowse) {
+            throw new Error('Cannot add secondary session in browse (read-only) mode');
+        }
         const userId = savedEntry?.user?.id;
         if (!userId) throw new Error('savedEntry.user.id is required');
         if (_state.sessions.has(userId)) return;

@@ -77,6 +77,21 @@
                         </TooltipWrapper>
 
                         <TooltipWrapper
+                            v-if="vrcxStore.isBrowse"
+                            :content="
+                                vrcxStore.browseSource === 'auto-detected'
+                                    ? t('status_bar.browse_tooltip_auto')
+                                    : t('status_bar.browse_tooltip_explicit')
+                            "
+                            side="top">
+                            <div
+                                class="flex items-center gap-1 px-2 h-[22px] whitespace-nowrap border-r border-border cursor-default">
+                                <span class="inline-block size-2 rounded-full shrink-0 bg-status-offline-alt" />
+                                <span class="text-foreground text-[11px]">{{ t('browse_mode.badge') }}</span>
+                            </div>
+                        </TooltipWrapper>
+
+                        <TooltipWrapper
                             v-if="!isMacOS && visibility.steamvr"
                             :content="
                                 gameStore.isSteamVRRunning

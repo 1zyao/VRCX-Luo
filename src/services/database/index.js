@@ -60,6 +60,10 @@ const database = {
         await adapter.initUserSchema(dbVars.userPrefix);
     },
 
+    getUserPrefix() {
+        return dbVars.userPrefix;
+    },
+
     async initTables() {
         await adapter.initGlobalSchema();
     },

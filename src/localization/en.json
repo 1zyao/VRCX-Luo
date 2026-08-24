@@ -3498,6 +3498,14 @@
         "db_tooltip_available": "Available capacity: {count}",
         "db_release_title": "Release Database Connections",
         "db_release_description": "Clears idle connections from the pool, releasing memory and network resources. Only affects idle connections — active SQL and transaction connections continue to work normally. The next request will need to rebuild connections (remote databases may have a brief cold-start delay). Not recommended for frequent use.",
-        "db_release_confirm": "Clear"
+        "db_release_confirm": "Clear",
+        "browse_tooltip_auto": "Read-only: another VRCX instance is actively collecting (auto-detected)",
+        "browse_tooltip_explicit": "Read-only: explicitly launched in browse mode"
+    },
+    "browse_mode": {
+        "badge": "Read-only",
+        "banner_text": "Another VRCX instance is using this database. Browse mode (read-only) enabled. If that instance stops its heartbeat, restart this one in about 2 minutes to restore write access; manual restore will come in a future version.",
+        "login_disabled_tooltip": "Browse mode (read-only) cannot log in new accounts",
+        "tool_disabled": "Browse mode (read-only) cannot perform this action"
     }
 }

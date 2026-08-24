@@ -25,7 +25,8 @@ vi.mock('../../../stores', () => ({
         isNavCollapsed: ref(false),
         setNavCollapsed: (...a) => mocks.setNavCollapsed(...a),
         setNavWidth: (...a) => mocks.setNavWidth(...a)
-    })
+    }),
+    useVrcxStore: () => ({ isBrowse: false })
 }));
 vi.mock('../../../composables/useMainLayoutResizable', () => ({
     useMainLayoutResizable: () => ({
@@ -109,7 +110,8 @@ describe('MainLayout.vue', () => {
             global: {
                 stubs: {
                     RouterView: { template: '<div />' },
-                    KeepAlive: { template: '<div><slot /></div>' }
+                    KeepAlive: { template: '<div><slot /></div>' },
+                    BrowseModeBanner: { template: '<div />' }
                 }
             }
         });

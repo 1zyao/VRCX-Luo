@@ -1876,5 +1876,15 @@
                 "403_404_bailing_request": "Solicitud cancelada debido a un reciente 404/403"
             }
         }
+    },
+    "browse_mode": {
+        "badge": "Read-only",
+        "banner_text": "Another VRCX instance is using this database. Browse mode (read-only) enabled. If that instance stops its heartbeat, restart this one in about 2 minutes to restore write access; manual restore will come in a future version.",
+        "login_disabled_tooltip": "Browse mode (read-only) cannot log in new accounts",
+        "tool_disabled": "Browse mode (read-only) cannot perform this action"
+    },
+    "status_bar": {
+        "browse_tooltip_auto": "Read-only: another VRCX instance is actively collecting (auto-detected)",
+        "browse_tooltip_explicit": "Read-only: explicitly launched in browse mode"
     }
 }

@@ -3553,6 +3553,14 @@
         "db_tooltip_available": "可用容量: {count}",
         "db_release_title": "释放数据库连接",
         "db_release_description": "清空连接池中的空闲连接,释放内存和网络资源。仅影响空闲连接,正在执行 SQL 和事务持有的连接不受影响。清空后下一次请求需重建连接(远程数据库有几十毫秒冷启动延迟)。不建议频繁操作。",
-        "db_release_confirm": "确认清空"
+        "db_release_confirm": "确认清空",
+        "browse_tooltip_auto": "只读：检测到其他 VRCX 实例正在采集（自动检测）",
+        "browse_tooltip_explicit": "只读：以浏览模式显式启动"
+    },
+    "browse_mode": {
+        "badge": "只读",
+        "banner_text": "检测到另一个 VRCX 实例正在使用此数据库，已进入浏览模式（只读）。对方停止心跳约 2 分钟后重新启动，将恢复写入；手动恢复功能将在后续版本提供。",
+        "login_disabled_tooltip": "浏览模式（只读）不可登录新账号",
+        "tool_disabled": "浏览模式（只读）不可执行此操作"
     }
 }

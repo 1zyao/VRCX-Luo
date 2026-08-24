@@ -127,7 +127,8 @@ vi.mock('../../../stores', () => ({
         showLaunchOptions: vi.fn()
     }),
     useVrcxStore: () => ({
-        showRegistryBackupDialog: vi.fn()
+        showRegistryBackupDialog: vi.fn(),
+        isBrowse: false
     }),
     useAppearanceSettingsStore: () => ({
         themeMode: mocks.themeMode,

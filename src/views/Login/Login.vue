@@ -43,6 +43,7 @@
                     {{ vrcStatusStore.statusText }}
                 </AlertDescription>
             </Alert>
+            <BrowseModeBanner />
             <div class="x-login-form-container">
                 <div>
                     <h2 class="m-0" style="font-weight: bold; text-align: center">{{ t('view.login.login') }}</h2>
@@ -96,13 +97,22 @@
                         </label>
 
                         <Field class="mt-4">
-                            <Button type="submit" size="lg" style="width: 100%">{{ t('view.login.login') }}</Button>
+                            <Button
+                                type="submit"
+                                size="lg"
+                                style="width: 100%"
+                                :disabled="vrcxStore.isBrowse"
+                                :title="vrcxStore.isBrowse ? t('browse_mode.login_disabled_tooltip') : undefined"
+                                >{{ t('view.login.login') }}</Button
+                            >
                         </Field>
                     </form>
                     <Button
                         variant="Secondary"
                         size="lg"
                         style="width: 100%"
+                        :disabled="vrcxStore.isBrowse"
+                        :title="vrcxStore.isBrowse ? t('browse_mode.login_disabled_tooltip') : undefined"
                         @click="openExternalLink('https://vrchat.com/register')"
                         >{{ t('view.login.register') }}</Button
                     >
@@ -168,7 +178,8 @@
                         variant="outline"
                         size="sm"
                         class="w-full mt-2"
-                        :disabled="multiLoginLoading"
+                        :disabled="multiLoginLoading || vrcxStore.isBrowse"
+                        :title="vrcxStore.isBrowse ? t('browse_mode.login_disabled_tooltip') : undefined"
                         @click="clickMultiLogin">
                         {{ t('view.login.loginSelected', { count: selectedAccountOrder.length }) }}
                     </Button>
@@ -229,7 +240,8 @@
         useAuthStore,
         useModalStore,
         useVrcStatusStore,
-        useVRCXUpdaterStore
+        useVRCXUpdaterStore,
+        useVrcxStore
     } from '../../stores';
     import { getLanguageName, languageCodes, resolveSystemLanguage } from '../../localization';
     import { tForLocale } from '../../plugins';
@@ -241,6 +253,7 @@
     import { accountHub } from '../../services/accountHub.js';
 
     import LoginSettingsDialog from './Dialog/LoginSettingsDialog.vue';
+    import BrowseModeBanner from '../../components/BrowseModeBanner.vue';
 
     const { userImage } = useUserDisplay();
     const { showVRCXUpdateDialog } = useVRCXUpdaterStore();
@@ -256,6 +269,7 @@
     const modalStore = useModalStore();
 
     const vrcStatusStore = useVrcStatusStore();
+    const vrcxStore = useVrcxStore();
 
     const { t } = useI18n();
 
@@ -294,6 +308,9 @@
      * @param user
      */
     async function clickSavedLogin(user) {
+        if (vrcxStore.isBrowse) {
+            return;
+        }
         try {
             await relogin(user);
         } catch {

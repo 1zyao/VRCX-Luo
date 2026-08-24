@@ -79,6 +79,11 @@ export function useToolActions() {
     const vrcxStore = useVrcxStore();
 
     async function triggerTool(toolOrKey) {
+        if (vrcxStore.isBrowse) {
+            toast.warning(t('browse_mode.tool_disabled'));
+            return;
+        }
+
         const definition =
             typeof toolOrKey === 'string'
                 ? toolDefinitionMap.get(toolOrKey)

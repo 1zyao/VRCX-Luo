@@ -196,7 +196,8 @@
         useModalStore,
         useSearchStore,
         useUiStore,
-        useVRCXUpdaterStore
+        useVRCXUpdaterStore,
+        useVrcxStore
     } from '../../stores';
     import { isEntryNotified as checkEntryNotified } from './navMenuUtils';
     import { DASHBOARD_NAV_KEY_PREFIX, links } from '../../shared/constants';
@@ -228,6 +229,7 @@
     const { unpinToolFromNav } = useToolNavPinning();
     const { logout } = useAuthStore();
     const modalStore = useModalStore();
+    const vrcxStore = useVrcxStore();
 
     const appearanceSettingsStore = useAppearanceSettingsStore();
     const {
@@ -315,6 +317,9 @@
     };
 
     const handleSettingsClick = () => {
+        if (vrcxStore.isBrowse) {
+            return;
+        }
         router.push({ name: 'settings' });
     };
 

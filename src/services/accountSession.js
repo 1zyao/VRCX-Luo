@@ -20,6 +20,7 @@ import { adapter } from './database/adapter/index.js';
 import webApiService from './webapi.js';
 import * as workerTimers from 'worker-timers';
 import { useModalStore } from '../stores/modal';
+import { useVrcxStore } from '../stores/vrcx';
 
 // ── Utility ────────────────────────────────────────────────────────────────────
 
@@ -59,6 +60,9 @@ export class AccountSession {
      * @param {{ user: object, loginParams: { username: string, password: string, endpoint?: string, websocket?: string }, cookies?: string }} savedEntry
      */
     async login(savedEntry) {
+        if (useVrcxStore().isBrowse) {
+            return;
+        }
         webApiService.createSecondaryClient(this.userId);
 
         // Apply saved cookies first (fast-path: skip full login)

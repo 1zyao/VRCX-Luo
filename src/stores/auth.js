@@ -12,6 +12,7 @@ import {
 import { AppDebug } from '../services/appConfig';
 import { authRequest } from '../api';
 import { database } from '../services/database';
+import { nodeRegistry } from '../services/database/nodeRegistry.js';
 import { escapeTag } from '../shared/utils';
 import { links } from '../shared/constants/link';
 import { initWebsocket } from '../services/websocket';
@@ -608,6 +609,9 @@ export const useAuthStore = defineStore('Auth', () => {
         user,
         { shouldTrackLoginNetworkIssueHint = !attemptingAutoLogin.value } = {}
     ) {
+        if (vrcxStore.isBrowse) {
+            return;
+        }
         await webApiService.clearCookies();
         const { loginParams } = user;
         if (user.cookies) {
@@ -705,6 +709,9 @@ export const useAuthStore = defineStore('Auth', () => {
      *
      */
     async function login() {
+        if (vrcxStore.isBrowse) {
+            return;
+        }
         // TODO: remove/refactor saveCredentials & primaryPassword (security)
         await webApiService.clearCookies();
         if (!loginForm.value.loading) {
@@ -1049,6 +1056,12 @@ export const useAuthStore = defineStore('Auth', () => {
             return;
         }
         await database.initUserTables(userStore.currentUser.id);
+        if (!vrcxStore.isBrowse) {
+            const prefix = database.getUserPrefix();
+            if (prefix) {
+                nodeRegistry.setOwnPrefixes([prefix]);
+            }
+        }
         advancedSettingsStore.runAvatarAutoCleanup(userStore.currentUser.id);
         await trackedNonFriendsStore.loadTrackedNonFriends();
         await manualRelationsStore.loadManualRelations();
