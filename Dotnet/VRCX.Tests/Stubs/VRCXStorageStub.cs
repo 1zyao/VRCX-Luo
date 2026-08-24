@@ -28,9 +28,24 @@ namespace VRCX
     {
         public static VRCXStorage Instance { get; } = new VRCXStorage();
 
-        public string Get(string key) => null;
+        private readonly Dictionary<string, string> _values = new();
+
+        public string Get(string key)
+            => _values.TryGetValue(key, out var value) ? value : null;
 
         public Dictionary<string, string> GetWithPrefix(string prefix)
-            => new Dictionary<string, string>();
+        {
+            var values = new Dictionary<string, string>();
+            foreach (var pair in _values)
+            {
+                if (pair.Key.StartsWith(prefix, StringComparison.Ordinal))
+                    values[pair.Key[prefix.Length..]] = pair.Value;
+            }
+            return values;
+        }
+
+        public void Clear() => _values.Clear();
+
+        public void Set(string key, string value) => _values[key] = value;
     }
 }
