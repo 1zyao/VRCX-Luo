@@ -11,6 +11,7 @@ import {
 import { initPiniaPlugins, pinia } from './stores';
 import { queryClient } from './queries';
 import { initAccountHubWatcher } from './services/accountHub.js';
+import { nodeRegistry } from './services/database/nodeRegistry.js';
 
 import App from './App.vue';
 
@@ -39,5 +40,11 @@ await initSentry(app);
 
 // Initialise multi-account hub watcher (after Pinia is up)
 initAccountHubWatcher();
+
+// H1 graceful exit (BROWSE_MODE_M2_DESIGN.md §2.5): 正常退出删除本节点
+// 心跳行，避免崩溃残留被 TTL 误判；fire-and-forget，不阻塞退出流程。
+window.addEventListener('beforeunload', () => {
+    nodeRegistry.removeOwnRow();
+});
 
 app.mount('#root');

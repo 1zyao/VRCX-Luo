@@ -52,7 +52,12 @@ const mocks = vi.hoisted(() => ({
         startHeartbeat: vi.fn(async () => undefined),
         stopHeartbeat: vi.fn()
     },
-    downgradeToReadOnly: vi.fn(async () => undefined)
+    downgradeToReadOnly: vi.fn(async () => undefined),
+    upgradeToWritable: vi.fn(() => undefined),
+    timers: {
+        setInterval: vi.fn(),
+        clearInterval: vi.fn()
+    }
 }));
 
 // ── module mocks (paths relative to src/stores/__tests__/) ────────────
@@ -60,7 +65,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../services/database/adapter/index.js', () => ({
     adapter: mocks.adapterMock,
     createAdapter: vi.fn(),
-    downgradeToReadOnly: mocks.downgradeToReadOnly
+    downgradeToReadOnly: mocks.downgradeToReadOnly,
+    upgradeToWritable: mocks.upgradeToWritable
 }));
 vi.mock('../../services/database', () => ({ database: mocks.databaseMock }));
 vi.mock('../../services/database/nodeRegistry.js', () => ({
@@ -80,6 +86,10 @@ vi.mock('../../services/watchState', () => ({
 }));
 vi.mock('vue-sonner', () => ({
     toast: { error: vi.fn(), success: vi.fn() }
+}));
+vi.mock('worker-timers', () => ({
+    setInterval: mocks.timers.setInterval,
+    clearInterval: mocks.timers.clearInterval
 }));
 
 vi.mock('../../coordinators/favoriteCoordinator', () => ({
@@ -451,5 +461,125 @@ describe('vrcx 启动：collector 分支决策树（改动前行为回归）', (
         );
         expect(mocks.databaseMock.runMigrations).not.toHaveBeenCalled();
         expect(store.databaseReadyForAutoLogin).toBe(true);
+    });
+});
+
+describe('vrcx 运行中自动接管（M3）', () => {
+    test('auto 降级 browse 后启动 60s 接管扫描', async () => {
+        vrcxStorageMock = installVrcxStorage('auto');
+        mocks.nodeRegistryMock.detectActiveCollectors.mockResolvedValue([
+            {
+                nodeId: 'node-other',
+                mode: 'collector',
+                prefixes: 'usr_a',
+                heartbeatAt: new Date().toISOString()
+            }
+        ]);
+
+        const store = useVrcxStore();
+        await store.waitForDatabaseInit();
+
+        expect(store.state.effectiveNodeMode).toBe('browse');
+        expect(mocks.timers.setInterval).toHaveBeenCalledWith(
+            expect.any(Function),
+            60_000
+        );
+    });
+
+    test('扫描发现无活跃 collector → 自动接管为 collector 恢复写入', async () => {
+        vrcxStorageMock = installVrcxStorage('auto');
+        mocks.nodeRegistryMock.detectActiveCollectors.mockResolvedValue([]);
+        mocks.timers.setInterval.mockImplementation(() => 42);
+
+        const store = useVrcxStore();
+        await store.waitForDatabaseInit();
+
+        // collector 启动，未降级 → 扫描不启动
+        expect(store.state.effectiveNodeMode).toBe('collector');
+        expect(mocks.timers.setInterval).not.toHaveBeenCalled();
+    });
+
+    test('接管扫描：仍有活跃 collector → 保持浏览模式', async () => {
+        vrcxStorageMock = installVrcxStorage('auto');
+        mocks.nodeRegistryMock.detectActiveCollectors.mockResolvedValue([
+            {
+                nodeId: 'node-other',
+                mode: 'collector',
+                prefixes: 'usr_a',
+                heartbeatAt: new Date().toISOString()
+            }
+        ]);
+        mocks.timers.setInterval.mockImplementation(() => 42);
+
+        const store = useVrcxStore();
+        await store.waitForDatabaseInit();
+
+        // 手动触发扫描：仍检测到 collector → 维持 browse，不升级
+        await store.scanForTakeover();
+
+        expect(store.state.effectiveNodeMode).toBe('browse');
+        expect(mocks.upgradeToWritable).not.toHaveBeenCalled();
+        expect(mocks.nodeRegistryMock.startHeartbeat).not.toHaveBeenCalled();
+    });
+
+    test('接管扫描：无活跃 collector → 升级为 collector 恢复写入', async () => {
+        vrcxStorageMock = installVrcxStorage('auto');
+        // 首次检测有 collector → 降级 browse；随后扫描时无 collector
+        mocks.nodeRegistryMock.detectActiveCollectors
+            .mockResolvedValueOnce([
+                {
+                    nodeId: 'node-other',
+                    mode: 'collector',
+                    prefixes: 'usr_a',
+                    heartbeatAt: new Date().toISOString()
+                }
+            ])
+            .mockResolvedValueOnce([]);
+        mocks.timers.setInterval.mockImplementation(() => 42);
+
+        const store = useVrcxStore();
+        await store.waitForDatabaseInit();
+        expect(store.state.effectiveNodeMode).toBe('browse');
+
+        await store.scanForTakeover();
+
+        expect(mocks.upgradeToWritable).toHaveBeenCalled();
+        expect(store.state.effectiveNodeMode).toBe('collector');
+        expect(store.state.browseSource).toBeNull();
+        expect(store.state.detectedNodeIds).toEqual([]);
+        expect(mocks.nodeRegistryMock.startHeartbeat).toHaveBeenCalledWith(
+            'collector'
+        );
+        expect(logSpy).toHaveBeenCalledWith(
+            '[browse] 未检测到活跃 collector，自动接管为 collector（恢复写入）'
+        );
+    });
+
+    test('接管扫描：检测出错 → 保留浏览模式并告警', async () => {
+        vrcxStorageMock = installVrcxStorage('auto');
+        mocks.nodeRegistryMock.detectActiveCollectors.mockResolvedValue([
+            {
+                nodeId: 'node-other',
+                mode: 'collector',
+                prefixes: 'usr_a',
+                heartbeatAt: new Date().toISOString()
+            }
+        ]);
+        mocks.timers.setInterval.mockImplementation(() => 42);
+
+        const store = useVrcxStore();
+        await store.waitForDatabaseInit();
+
+        mocks.nodeRegistryMock.detectActiveCollectors.mockRejectedValueOnce(
+            new Error('no such table: node_registry')
+        );
+        await store.scanForTakeover();
+
+        expect(store.state.effectiveNodeMode).toBe('browse');
+        expect(mocks.upgradeToWritable).not.toHaveBeenCalled();
+        expect(warnSpy).toHaveBeenCalledWith(
+            '[browse] 接管扫描失败（保留浏览模式）:',
+            expect.any(Error)
+        );
     });
 });

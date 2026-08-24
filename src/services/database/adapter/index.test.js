@@ -5,7 +5,8 @@ import {
     createAdapter,
     adapter,
     SQLiteAdapter,
-    downgradeToReadOnly
+    downgradeToReadOnly,
+    upgradeToWritable
 } from './index.js';
 
 /**
@@ -353,5 +354,41 @@ describe('downgradeToReadOnly (M2 auto 检测 re-gate)', () => {
         await expect(
             Promise.resolve(pg.insert('t', { a: 1 })).then((v) => v)
         ).not.toBe(0);
+    });
+});
+
+describe('upgradeToWritable (M3 auto 接管 re-gate)', () => {
+    afterEach(async () => {
+        upgradeToWritable();
+        await initAdapter('sqlite');
+    });
+
+    it('将只读门禁解包为可写实例：adapter 换绑回原始实例', async () => {
+        upgradeToWritable();
+        await initAdapter('sqlite');
+
+        const raw = adapter;
+        await downgradeToReadOnly();
+        expect(adapter).not.toBe(raw);
+
+        const upgraded = upgradeToWritable();
+
+        expect(upgraded).toBe(raw);
+        expect(adapter).toBe(raw);
+        expect(adapter.engineType).toBe('sqlite');
+    });
+
+    it('可再次降级：解包后可重新加门禁', async () => {
+        upgradeToWritable();
+        await initAdapter('sqlite');
+
+        const raw = adapter;
+        await downgradeToReadOnly();
+        upgradeToWritable();
+
+        const reDowngraded = await downgradeToReadOnly();
+
+        expect(reDowngraded).not.toBe(raw);
+        await expect(reDowngraded.insert('t', { a: 1 })).resolves.toBe(0);
     });
 });

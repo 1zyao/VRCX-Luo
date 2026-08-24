@@ -89,6 +89,9 @@ let _initPromise = null;
 /** @type {WeakSet<object>} 已门禁实例（防双重包装） */
 const _gatedInstances = new WeakSet();
 
+/** @type {WeakMap<object, object>} 门禁代理 → 原始实例（供 M3 升级解包） */
+const _gateInner = new WeakMap();
+
 /**
  * 应用只读门禁：`readOnly` 为真且实例尚未门禁时包装一次并登记。
  *
@@ -105,6 +108,7 @@ function _applyReadOnlyGate(instance, readOnly) {
     // initAdapter 调用传回代理时也不会再包一层。
     _gatedInstances.add(instance);
     _gatedInstances.add(gated);
+    _gateInner.set(gated, instance);
     return gated;
 }
 
@@ -442,6 +446,23 @@ async function createAdapter(config) {
  */
 export async function downgradeToReadOnly() {
     return initAdapter(adapter.engineType, { readOnly: true });
+}
+
+/**
+ * 运行中升级回可写（M3 自动接管：browse 节点发现无活跃 collector 后
+ * 恢复为 collector）。解包门禁代理，还原原始可写实例并换绑 live binding；
+ * 当前本就非门禁时零变化。
+ * @returns {import('./EngineAdapter.js').EngineAdapter}
+ */
+export function upgradeToWritable() {
+    const inner = _gateInner.get(adapter) ?? adapter;
+    if (inner !== adapter) {
+        _gatedInstances.delete(adapter);
+        _gatedInstances.delete(inner);
+        _gateInner.delete(adapter);
+        adapter = inner;
+    }
+    return adapter;
 }
 
 export { adapter, SQLiteAdapter, createAdapter };

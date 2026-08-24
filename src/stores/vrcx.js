@@ -42,11 +42,13 @@ import { useVrcStatusStore } from './vrcStatus';
 import { clearVRCXCache } from '../coordinators/vrcxCoordinator';
 import { resetSearchIndexOnLogin } from '../coordinators/searchIndexCoordinator';
 import { watchState } from '../services/watchState';
+import * as workerTimers from 'worker-timers';
 
 import {
     adapter,
     createAdapter,
-    downgradeToReadOnly
+    downgradeToReadOnly,
+    upgradeToWritable
 } from '../services/database/adapter/index.js';
 import { normalizeNodeMode } from '../services/database/adapter/readOnlyGate.js';
 import { nodeRegistry } from '../services/database/nodeRegistry.js';
@@ -91,6 +93,48 @@ export const useVrcxStore = defineStore('Vrcx', () => {
         detectedNodeIds: []
     });
     const isBrowse = computed(() => state.effectiveNodeMode === 'browse');
+
+    // ── M3 运行中自动接管（BROWSE_MODE_M2_DESIGN.md §2.5 M3）──
+    // auto 检测降级 browse 后，每 60s 扫描一次共享库：其他活跃 collector
+    // 全部失活（TTL 120s 过期）时自动恢复为 collector（升级写 + 心跳）。
+    const TAKEOVER_SCAN_INTERVAL_MS = 60_000;
+    /** @type {number | null} */
+    let takeoverScanTimer = null;
+
+    function stopTakeoverScan() {
+        if (takeoverScanTimer !== null) {
+            workerTimers.clearInterval(takeoverScanTimer);
+            takeoverScanTimer = null;
+        }
+    }
+
+    async function scanForTakeover() {
+        let detected;
+        try {
+            detected = await nodeRegistry.detectActiveCollectors();
+        } catch (error) {
+            console.warn('[browse] 接管扫描失败（保留浏览模式）:', error);
+            return;
+        }
+        if (detected.length > 0) return;
+        console.log(
+            '[browse] 未检测到活跃 collector，自动接管为 collector（恢复写入）'
+        );
+        stopTakeoverScan();
+        upgradeToWritable();
+        state.effectiveNodeMode = 'collector';
+        state.browseSource = null;
+        state.detectedNodeIds = [];
+        await nodeRegistry.startHeartbeat('collector');
+    }
+
+    function startTakeoverScan() {
+        stopTakeoverScan();
+        takeoverScanTimer = workerTimers.setInterval(
+            scanForTakeover,
+            TAKEOVER_SCAN_INTERVAL_MS
+        );
+    }
     const databaseUpgradeState = ref({
         visible: false,
         fromVersion: 0,
@@ -220,6 +264,8 @@ export const useVrcxStore = defineStore('Vrcx', () => {
                     }
                     effectiveMode = 'browse';
                     browseSource = 'auto-detected';
+                    // M3：运行中接管扫描——collector 失活后自动恢复写入
+                    startTakeoverScan();
                 }
             } else if (nodeMode === 'browse') {
                 browseSource = 'explicit';
@@ -1230,6 +1276,9 @@ export const useVrcxStore = defineStore('Vrcx', () => {
         dragEnterCef,
         backupVrcRegistry,
         upgradeInPlace,
-        waitForDatabaseInit
+        waitForDatabaseInit,
+        scanForTakeover,
+        startTakeoverScan,
+        stopTakeoverScan
     };
 });
