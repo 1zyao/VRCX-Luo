@@ -1113,6 +1113,69 @@ class MySQLAdapter extends EngineAdapter {
         await this.executeNonQuery(
             `CREATE TABLE IF NOT EXISTS configs (\`key\` VARCHAR(255) PRIMARY KEY, \`value\` LONGTEXT)`
         );
+        // 幂等列类型升级:旧库 configs/cookies 的 `value` 列可能是 TEXT/VARCHAR
+        // (历史 schema),CREATE TABLE IF NOT EXISTS 不会升级既有列 → 写入大 JSON
+        // (VRChat Registry 备份 / 序列化 CookieCollection) 时 MySqlConnector 抛
+        // "Data too long for column 'value'"。仅在非 longtext 时 ALTER MODIFY。
+        await this.initValueColumnsLongText();
+    }
+
+    /**
+     * 确保 configs / cookies 的 `value` 列为 LONGTEXT(MySQL 专用写方法)。
+     *
+     * 在两条路径都会被调用:
+     *   - `initGlobalSchema()`:新库 / 迁移路径建表之后;
+     *   - `configRepository.setString()`:写入值字节数 >60KB 时惰性触发
+     *     (`adapter.initValueColumnsLongText?.()`),覆盖"已初始化且版本号 ==
+     *     当前"的旧库——该路径不调 initGlobalSchema,旧库 value 列若为
+     *     TEXT(64KB)将一直保持过小,写入 VRChat Registry 备份等大 JSON 时报
+     *     Data too long。刻意不在启动期(configRepository.init)执行,避免与
+     *     登录初始化并发干扰登录态持久化。只读(browse)模式下经 readOnlyGate
+     *     拦截为 no-op(本方法已登记 WRITE_METHODS / VOID_METHODS)。
+     *
+     * MySQL 专用扩展(基类冻结),调用方以 `adapter.initValueColumnsLongText?.()`
+     * 防御式探测(SQLite/PG 文本列本就无界,无需此升级)。
+     *
+     * @returns {Promise<void>}
+     */
+    async initValueColumnsLongText() {
+        await this._ensureLongTextColumn('cookies', 'value');
+        await this._ensureLongTextColumn('configs', 'value');
+    }
+
+    /**
+     * 幂等升级既有表某列为 LONGTEXT(MySQL 专用,基类无此接口)。
+     *
+     * 仅当 INFORMATION_SCHEMA 探测到该列当前 DATA_TYPE 非 longtext 时才发
+     * `ALTER TABLE ... MODIFY ... LONGTEXT`;列已为 longtext 或列不存在时
+     * 直接返回(零 SQL 写)。ALTER 为尽力而为:失败(如账户缺 ALTER 权限)仅
+     * console.warn,不阻断启动——该升级属启动期维护操作,不应因权限问题
+     * 拖垮整个应用(应用启动失败远比备份失败严重)。
+     *
+     * @param {string} table - 表名(原始,内部经 quoteIdent 反引号转义)
+     * @param {string} column - 列名(原始,内部经 quoteIdent 反引号转义)
+     * @returns {Promise<void>}
+     */
+    async _ensureLongTextColumn(table, column) {
+        const rows = [];
+        await this.execute(
+            (row) => rows.push(row),
+            `SELECT DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = @table AND COLUMN_NAME = @column`,
+            { table, column }
+        );
+        if (rows.length === 0) return;
+        const dataType = String(rows[0][0]).toLowerCase();
+        if (dataType === 'longtext') return;
+        try {
+            await this.executeNonQuery(
+                `ALTER TABLE ${this.quoteIdent(table)} MODIFY ${this.quoteIdent(column)} LONGTEXT`
+            );
+        } catch (err) {
+            console.warn(
+                `[mysql] 升级 ${table}.${column} 为 LONGTEXT 失败(大 JSON 写入可能超限):`,
+                err instanceof Error ? err.message : String(err)
+            );
+        }
     }
 
     // ── Metadata ─────────────────────────────────────────────────────
