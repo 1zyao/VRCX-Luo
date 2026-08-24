@@ -193,14 +193,16 @@ export const useFeedStore = defineStore('Feed', () => {
     }
 
     async function feedTableLookup({ silent = false } = {}) {
-        await configRepository.setString(
-            'VRCX_feedTableFilters',
-            JSON.stringify(feedTable.value.filter)
-        );
-        await configRepository.setBool(
-            'VRCX_feedTableVIPFilter',
-            feedTable.value.vip
-        );
+        if (!silent) {
+            await configRepository.setString(
+                'VRCX_feedTableFilters',
+                JSON.stringify(feedTable.value.filter)
+            );
+            await configRepository.setBool(
+                'VRCX_feedTableVIPFilter',
+                feedTable.value.vip
+            );
+        }
         if (!silent) feedTable.value.loading = true;
         try {
             let vipList = [];
