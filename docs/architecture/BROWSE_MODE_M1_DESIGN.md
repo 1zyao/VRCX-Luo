@@ -21,7 +21,7 @@
 | M-3 browse 账号前缀错配 | MEDIUM/LOW | M1 文档约束 + 已知限制；查询层容错归 M2 | §4.4、§8 |
 | L-1 handleSQLiteError 误映射 | LOW | M1 低成本修复：readonly 错误独立分支（warn 不弹"Database is locked" modal） | §3 M7 |
 | R-4 空库/低版本 + 启动日志三连 | 修订要求 | 新增小节 + 三连日志（模式/版本/只读警告）+ 登录不持久化警告 | §4.4、§10 |
-| R-5 测试计划扩展 | 修订要求 | 门禁 21 方法 + execute 审计、H-1 四路径、LogWatcher 链路、连接层只读、collector 基线、配置校验、升级旁路 | §6 |
+| R-5 测试计划扩展 | 修订要求 | 门禁 22 方法 + execute 审计、H-1 四路径、LogWatcher 链路、连接层只读、collector 基线、配置校验、升级旁路 | §6 |
 | R-6 M1 最小 UX | 修订要求 | 启动日志警告（模式/只读/登录不持久化）作为 M2 横幅临时替代 | §10 |
 | R-8 基建复用清单错误声明 | 修订要求 | BROWSE_MODE_DESIGN.md §5 "只读连接串 ✅ 已支持" 修正为待实现 | §3 N5、§10 |
 
@@ -115,7 +115,7 @@ normalizeNodeMode(raw): String(raw ?? '').trim().toLowerCase() === 'browse' ? 'b
 
 | # | 文件 | 内容 |
 |---|---|---|
-| N1 | `src/services/database/adapter/readOnlyGate.js` | `createReadOnlyAdapter(inner)`（Proxy，get trap 返回未绑定 inner 函数）；`WRITE_METHODS` **21 方法**名单（§4.1）；守恒 no-op + once-warn（模块级 Set）；透传；导出 `normalizeNodeMode(raw)`（§2.5）；导出 `WRITE_METHODS` 供反射测试 |
+| N1 | `src/services/database/adapter/readOnlyGate.js` | `createReadOnlyAdapter(inner)`（Proxy，get trap 返回未绑定 inner 函数）；`WRITE_METHODS` **22 方法**名单（§4.1）；守恒 no-op + once-warn（模块级 Set）；透传；导出 `normalizeNodeMode(raw)`（§2.5）；导出 `WRITE_METHODS` 供反射测试 |
 | N2 | `Dotnet/NodeMode.cs` | `internal static class NodeMode`：`IsBrowseMode()` = `normalize(Get("VRCX_NodeMode")) === 'browse'`；`normalize` 纯函数（trim+lower）；非法值 `logger.Warn`；纯函数供测试 |
 | N3 | `src/services/database/adapter/__tests__/readOnlyGate.test.js` | 门禁契约 + 归一化 + withTransaction 绑定测试（§6.1） |
 | N4 | `Dotnet/VRCX.Tests/NodeModeTests.cs` | 归一化/默认/非法值（§6.2） |
@@ -142,7 +142,7 @@ normalizeNodeMode(raw): String(raw ?? '').trim().toLowerCase() === 'browse' ? 'b
 
 ## 4. 门禁边界定义
 
-### 4.1 拦截名单（`WRITE_METHODS`，21 方法，MEDIUM-2 修订）
+### 4.1 拦截名单（`WRITE_METHODS`，22 方法，MEDIUM-2 修订 + PR#26 增 initValueColumnsLongText）
 
 ```
 executeNonQuery, insert, bulkInsert, update, updateWhere, delete, deleteAll,
@@ -193,7 +193,7 @@ dropUserSchema                                   ← 新增（PgSQLAdapter.js:11
 
 | 面 | 门禁 | 说明 |
 |---|---|---|
-| 单例 adapter（默认连接） | ✅ Proxy（21 方法） | 全部业务模块 + configRepository + 迁移 runner + coordinators + **L1 采集链（LogWatcher→JS→adapter）** 均经此 |
+| 单例 adapter（默认连接） | ✅ Proxy（22 方法） | 全部业务模块 + configRepository + 迁移 runner + coordinators + **L1 采集链（LogWatcher→JS→adapter）** 均经此 |
 | `createAdapter` 实例（pullEngine dst、OnConnection 路径） | ❌ 不门禁 | 用户显式导出流，目标非共享库；SQLite createAdapter 默认已只读（pullEngine:226-229 显式覆盖才可写）；C# doc 调用方自控连接串 |
 | raw `execute` 写 SQL / C# 桥直调 | 连接层兜底（SQLite M1；PG/MySQL M2） | 允许涌出 + L-1 可辨识报错（§4.3） |
 | VRCXStorage（JSON） | ❌ 不门禁 | 非数据库面；`VRCX_NodeMode` 持久化依赖 |
@@ -214,7 +214,7 @@ dropUserSchema                                   ← 新增（PgSQLAdapter.js:11
 
 | 用例 | 文件 | 覆盖 |
 |---|---|---|
-| no-op 契约全表（21 方法） | N3 | 逐个断言返回 0/undefined、底层未调用（vi.fn 包 inner）、once-warn 次数 |
+| no-op 契约全表（22 方法） | N3 | 逐个断言返回 0/undefined、底层未调用（vi.fn 包 inner）、once-warn 次数 |
 | 名单完整性（反射） | N3 | §4.1 原型反射谓词测试（MEDIUM-2） |
 | **H-1 四路径** | M9 `index.test.js` | ① 模块加载单例 + `readOnly:true` → 包装；② `initAdapter('sqlite')` 复用路径（现存在实例）→ 包装；③ `initAdapter('postgresql')` 新建路径 → 包装（mock 懒加载模块）；④ **两处返回值（:265 与 :320）均为包装实例**；⑤ 双重调用幂等（WeakSet 不重复包） |
 | **MEDIUM-1 withTransaction 绑定** | N3 | `proxy.withTransaction(async () => { await proxy.insert(...); await inner.selectOne(...) })` → insert no-op、读正常、commit 不抛、`_txStack` 平衡；`this` 链：inner 方法内部 `this._normalizeArgs` 经 proxy 正常 |
@@ -282,7 +282,7 @@ dropUserSchema                                   ← 新增（PgSQLAdapter.js:11
 
 | M1 验收 | 证据链（自动化 → 人工） |
 |---|---|
-| **browse 模式零写库（代码门禁）** | ① N3 21 方法 no-op 契约 + 反射名单测试；② M9 H-1 四路径 + 返回值断言；③ M11 升级旁路 + 探测；④ 端到端人工 #3 |
+| **browse 模式零写库（代码门禁）** | ① N3 22 方法 no-op 契约 + 反射名单测试；② M9 H-1 四路径 + 返回值断言；③ M11 升级旁路 + 探测；④ 端到端人工 #3 |
 | **browse 模式零写库（SQLite 连接层拒绝）** | ⑤ M10 真库 INSERT/DDL 抛 readonly 错误（CI 自动化）；⑥ 连接串断言（Read Only=True、无 PRAGMA） |
 | **PG/MySQL 连接层只读（M2 项）** | ⑦ 缺口声明（§8 R7）+ §6.3 人工清单；M1 不验收此项 |
 | **collector 行为不变** | ⑧ `initAdapter` 缺省分支零逻辑改动（M9 回归）；⑨ M10 collector 连接串逐字符等价断言；⑩ 全量现有 vitest + Dotnet.Tests 零改动全绿；⑪ 人工 #4 |
@@ -305,7 +305,7 @@ dropUserSchema                                   ← 新增（PgSQLAdapter.js:11
 1. **时序铁律**：数据库连接由主进程先建（Program.cs:295-314 / main.js:161-176），browse 只读必须在 C# `Init()` 内生效（M4）；JS 门禁只覆盖渲染进程面。
 2. **H-3 定案**：M1 = SQLite C# 池只读（连接串 `Read Only=True` + 跳过写 PRAGMA + 缺文件可行动报错）；PG/MySQL 连接层只读 = M2（机制已验证：Npgsql 10.0.3 `Options` / MySqlConnector 2.6.1 `UseConnectionOpenedCallback`）。
 3. **门禁挂载**：`adapter/index.js` `initAdapter` 双分支收敛 + `_gatedInstances` WeakSet 幂等；**返回值 = 包装实例**（:265 与 :320 两处）；get trap 返回未绑定 inner 函数（this 链=Proxy，MEDIUM-1 透传正确）。
-4. **名单 21 方法**（含 `dropUserSchema` PgSQLAdapter:1148）；完整性测试用原型反射 + 写动词谓词，非硬编码。
+4. **名单 22 方法**（含 `dropUserSchema` PgSQLAdapter:1148、`initValueColumnsLongText` MySQLAdapter PR#26）；完整性测试用原型反射 + 写动词谓词，非硬编码。
 5. **no-op 契约**：守恒返回（0/undefined）、不抛、once-warn；`withTransaction` 透传；`execute` 不入名单（单例路径读约定 + 连接层兜底，M-1 审计结论）。
 6. **空库/低版本/缺文件**：探测 → warn → 降级不崩溃（M8 configRepository 容错 + M11 探测日志三连）；缺文件 fail-fast 可行动报错（M4）。
 7. **归一化契约**：`trim+lower === 'browse'` → browse；其余（含 auto/collector/非法）→ collector（fail-safe）；C#/JS 双端同表测试（MEDIUM-5）。
@@ -317,7 +317,7 @@ dropUserSchema                                   ← 新增（PgSQLAdapter.js:11
 
 | 切片 | 内容 | 验证命令 | DoD |
 |---|---|---|---|
-| S1 | `readOnlyGate.js` + `readOnlyGate.test.js`；`adapter/index.js`（双分支 + WeakSet + 返回包装）；`index.test.js` | `npx vitest run src/services/database/adapter/readOnlyGate.test.js src/services/database/adapter/index.test.js`；`npm run typecheck:js`；oxlint/oxfmt | 21 方法 no-op 全表；initAdapter sqlite 复用路径为 Proxy；幂等；withTransaction 内写拦截；collector 零侵入 |
+| S1 | `readOnlyGate.js` + `readOnlyGate.test.js`；`adapter/index.js`（双分支 + WeakSet + 返回包装）；`index.test.js` | `npx vitest run src/services/database/adapter/readOnlyGate.test.js src/services/database/adapter/index.test.js`；`npm run typecheck:js`；oxlint/oxfmt | 22 方法 no-op 全表；initAdapter sqlite 复用路径为 Proxy；幂等；withTransaction 内写拦截；collector 零侵入 |
 | S2 | `NodeMode.cs` + `NodeModeTests.cs`；`SQLite.cs`（browse 只读串 + 跳过 PRAGMA + 缺文件检查）；`LogWatcher.cs`（browse 不启动）；`SQLiteBridgeTests.cs` | `dotnet test Dotnet/VRCX.Tests` | collector 连接串逐字符不变；browse 串含 Read Only=True 无 PRAGMA；缺文件 fail-fast；真库只读拒绝；C# 归一化单测 |
 | S3 | `SQLiteAdapter.js`（M7 readonly 分支）；`configRepository.js`（M8 降级读）；M12 测试 | vitest 对应文件 | readonly 错误不误报 locked；configs 缺失 getString 返默认值 |
 | S4 | `vrcx.js`（旁路+探测+日志三连）；`interopApi.js`（读 NodeMode 传参）；`vrcx.test.js`；N5 文档修正 | `npx vitest run src/stores/__tests__/vrcx.test.js`；typecheck | browse 启动零 DB 写；空库/低版本 warn 不崩溃；collector 回归；normalizeNodeMode 双端一致 |

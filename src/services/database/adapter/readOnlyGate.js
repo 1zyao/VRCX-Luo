@@ -19,7 +19,7 @@
  */
 
 /**
- * 拦截名单：21 个写方法（§4.1，MEDIUM-2 修订，含 PgSQLAdapter.js:1148 独有的
+ * 拦截名单：22 个写方法（§4.1，MEDIUM-2 修订，含 PgSQLAdapter.js:1148 独有的
  * `dropUserSchema`）。完整性由 readOnlyGate.test.js 的原型反射测试锁定——
  * 引擎未来"只增"写方法时测试即失败，迫使名单同步。
  *
@@ -46,6 +46,7 @@ export const WRITE_METHODS = [
     'optimize',
     'initUserSchema',
     'initGlobalSchema',
+    'initValueColumnsLongText',
     'dropUserSchema'
 ];
 
@@ -59,7 +60,11 @@ export const WRITE_METHODS = [
  *
  * @type {Set<string>}
  */
-const VOID_METHODS = new Set(['initUserSchema', 'initGlobalSchema']);
+const VOID_METHODS = new Set([
+    'initUserSchema',
+    'initGlobalSchema',
+    'initValueColumnsLongText'
+]);
 
 /** @type {Set<string>} 名单 O(1) 查找集 */
 const _writeSet = new Set(WRITE_METHODS);

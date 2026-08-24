@@ -2,7 +2,7 @@
  * 浏览模式只读门禁（readOnlyGate.js）单元测试（§6.1 N3）。
  *
  * 覆盖（docs/architecture/BROWSE_MODE_M1_DESIGN.md §6.1）：
- *  1. no-op 契约全表：21 个写方法逐个断言守恒返回值（number → 0 / void →
+ *  1. no-op 契约全表：22 个写方法逐个断言守恒返回值（number → 0 / void →
  *     undefined）、底层方法零调用、once-warn 每方法名一次；
  *  2. 名单完整性（§4.1 MEDIUM-2 修订）：原型反射 + 写动词谓词，三引擎
  *     prototype own method names 命中集合 ⊆ WRITE_METHODS；
@@ -30,7 +30,11 @@ import {
 } from '../readOnlyGate.js';
 
 /** 守恒契约中返回 `undefined` 的写方法（对应 EngineAdapter.js JSDoc `Promise<void>`） */
-const VOID_METHODS = new Set(['initUserSchema', 'initGlobalSchema']);
+const VOID_METHODS = new Set([
+    'initUserSchema',
+    'initGlobalSchema',
+    'initValueColumnsLongText'
+]);
 
 const WARN_PREFIX = '[browse] 只读模式，写方法已跳过: ';
 
@@ -47,7 +51,7 @@ afterEach(() => {
 });
 
 describe('no-op 契约（§4.2）', () => {
-    test('21 个写方法：守恒返回、底层零调用、once-warn（最先执行）', async () => {
+    test('22 个写方法：守恒返回、底层零调用、once-warn（最先执行）', async () => {
         // 构造 vi.fn 包装的 inner：若 no-op 穿透，会被调用并返回 42
         const inner = {};
         for (const name of WRITE_METHODS) {
@@ -69,8 +73,8 @@ describe('no-op 契约（§4.2）', () => {
         const warns = warn.mock.calls.filter(
             ([msg]) => typeof msg === 'string' && msg.startsWith(WARN_PREFIX)
         );
-        // 21 个方法名恰好各 warn 一次（本文件首个触写测试）
-        expect(warns).toHaveLength(21);
+        // 22 个方法名恰好各 warn 一次（本文件首个触写测试）
+        expect(warns).toHaveLength(22);
         for (const name of WRITE_METHODS) {
             expect(
                 warns.filter(([msg]) => msg === WARN_PREFIX + name)
@@ -88,7 +92,7 @@ describe('no-op 契约（§4.2）', () => {
 });
 
 describe('名单完整性（§4.1 反射，MEDIUM-2）', () => {
-    test('三引擎原型写方法 ⊆ WRITE_METHODS（且当前恰好 21 个、无例外）', () => {
+    test('三引擎原型写方法 ⊆ WRITE_METHODS（且当前恰好 22 个、无例外）', () => {
         // 写动词谓词——引擎未来"只增"写方法时此处即失败，迫使名单同步；
         // 显式例外表当前为空（新增例外需随测试注释说明理由）。
         const writeVerb =
@@ -110,7 +114,7 @@ describe('名单完整性（§4.1 反射，MEDIUM-2）', () => {
         }
         // 反向兜底：名单不得列出现有引擎都没有的写方法（防名单膨胀）
         expect([...hits].sort()).toEqual([...WRITE_METHODS].sort());
-        expect(WRITE_METHODS).toHaveLength(21);
+        expect(WRITE_METHODS).toHaveLength(22);
     });
 });
 

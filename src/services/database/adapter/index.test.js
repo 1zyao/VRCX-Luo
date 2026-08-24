@@ -198,7 +198,7 @@ describe('adapter/index lazy-load (literal-path loaders)', () => {
 // ── Browse-mode read-only gate (H-1, §2.2 / §6.1) ─────────────────
 //
 // `initAdapter(mode, { readOnly: true })`（browse 模式）时单例被包装为只读
-// Proxy：21 个写方法 no-op、读方法/事务 API 透传。覆盖 H-1 五路径：
+// Proxy：22 个写方法 no-op、读方法/事务 API 透传。覆盖 H-1 五路径：
 //   ① 模块加载单例 + readOnly:true → 包装；
 //   ② initAdapter('sqlite') 复用路径（现存在实例）→ 包装；
 //   ③ initAdapter('postgresql') 新建路径 → 包装（懒加载）；
