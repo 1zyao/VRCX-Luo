@@ -22,3 +22,6 @@ coverage/
 .kilocode/
 TempLogs/
 *.bak
+.dsh-worktrees/
+.mnemon/
+.dsh/
