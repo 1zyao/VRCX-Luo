@@ -551,3 +551,32 @@ describe('_readChangeCounter', () => {
         }
     });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// M2: initGlobalSchema 创建 node_registry 心跳表(browse 模式检测)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('initGlobalSchema 包含 node_registry(M2)', () => {
+    /** @type {MySQLAdapter} */
+    let adapter;
+
+    beforeEach(() => {
+        adapter = new MySQLAdapter();
+        adapter.executeNonQuery = vi.fn().mockResolvedValue(0);
+        // createIndex 预检查走 execute;initValueColumnsLongText 也走 execute。
+        // 用空结果表让预检查"索引不存在"→ 走 executeNonQuery,并跳过 ALTER。
+        adapter.execute = vi.fn().mockImplementation(async (cb) => cb([]));
+    });
+
+    it('发出 node_registry 的 CREATE TABLE(VARCHAR(64) 主键)', async () => {
+        await adapter.initGlobalSchema();
+        const ddl = adapter.executeNonQuery.mock.calls
+            .map((c) => c[0])
+            .find((sql) => String(sql).includes('node_registry'));
+        expect(ddl).toContain('CREATE TABLE IF NOT EXISTS node_registry');
+        expect(ddl).toContain('`node_id` VARCHAR(64) PRIMARY KEY');
+        expect(ddl).toContain('`mode` VARCHAR(16) NOT NULL');
+        expect(ddl).toContain('`prefixes` TEXT NOT NULL');
+        expect(ddl).toContain('`heartbeat_at` VARCHAR(255) NOT NULL');
+    });
+});

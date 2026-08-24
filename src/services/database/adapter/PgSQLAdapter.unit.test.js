@@ -501,6 +501,26 @@ describe('PgSQLAdapter', () => {
 
     // ── _readChangeCounter(完备层计数器钩子,Phase 1) ────────────────
 
+    // ── initGlobalSchema(M2 node_registry DDL) ───────────────────────
+
+    describe('initGlobalSchema', () => {
+        it('创建 node_registry 心跳表(public schema,TEXT 主键)', async () => {
+            const spy = vi.fn().mockResolvedValue(0);
+            adapter.executeNonQuery = spy;
+            await adapter.initGlobalSchema();
+            const ddl = spy.mock.calls
+                .map((c) => c[0])
+                .find((sql) => String(sql).includes('node_registry'));
+            expect(ddl).toContain(
+                'CREATE TABLE IF NOT EXISTS public.node_registry'
+            );
+            expect(ddl).toContain('node_id TEXT PRIMARY KEY');
+            expect(ddl).toContain('mode TEXT NOT NULL');
+            expect(ddl).toContain('prefixes TEXT NOT NULL');
+            expect(ddl).toContain('heartbeat_at TEXT NOT NULL');
+        });
+    });
+
     describe('_readChangeCounter', () => {
         it('读取 pg_stat_user_tables 行级 DML 计数聚合,返回 row[0] 数值', async () => {
             vi.stubGlobal('PostgreSQL', {
