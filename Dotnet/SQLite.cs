@@ -605,10 +605,10 @@ namespace VRCX
             EnsureInitialized();
             var b = Interlocked.Increment(ref _totalBorrowed);
             UpdatePeak(b);
-            using var connection = new SQLiteConnection(_connectionString);
-            connection.Open();
             try
             {
+                using var connection = new SQLiteConnection(_connectionString);
+                connection.Open();
                 Interlocked.Increment(ref _activeCount);
                 try
                 {
@@ -666,10 +666,10 @@ namespace VRCX
             EnsureInitialized();
             var b = Interlocked.Increment(ref _totalBorrowed);
             UpdatePeak(b);
-            using var connection = new SQLiteConnection(_connectionString);
-            connection.Open();
             try
             {
+                using var connection = new SQLiteConnection(_connectionString);
+                connection.Open();
                 Interlocked.Increment(ref _activeCount);
                 try
                 {
@@ -1165,17 +1165,33 @@ namespace VRCX
             var connId = Interlocked.Increment(ref _nextConnId);
             var b = Interlocked.Increment(ref _totalBorrowed);
             UpdatePeak(b);
-            var conn = new SQLiteConnection(_connectionString);
-            conn.Open();
-            var holder = new TxHolder { Conn = conn, ConnLabel = ChangeConnDefault };
-            using (var beginCmd = conn.CreateCommand())
+            try
             {
-                beginCmd.CommandText = "BEGIN";
-                beginCmd.ExecuteNonQuery();
+                var conn = new SQLiteConnection(_connectionString);
+                try
+                {
+                    var holder = new TxHolder { Conn = conn, ConnLabel = ChangeConnDefault };
+                    conn.Open();
+                    using (var beginCmd = conn.CreateCommand())
+                    {
+                        beginCmd.CommandText = "BEGIN";
+                        beginCmd.ExecuteNonQuery();
+                    }
+                    holder.Timer = new Timer(_ => OnTxTimeout(connId), null, TX_IDLE_MS, -1);
+                    _pinned[connId] = holder;
+                    return connId;
+                }
+                catch
+                {
+                    conn.Dispose();
+                    throw;
+                }
             }
-            holder.Timer = new Timer(_ => OnTxTimeout(connId), null, TX_IDLE_MS, -1);
-            _pinned[connId] = holder;
-            return connId;
+            finally
+            {
+                if (!_pinned.ContainsKey(connId))
+                    Interlocked.Decrement(ref _totalBorrowed);
+            }
         }
 
         /// <summary>
@@ -1198,17 +1214,33 @@ namespace VRCX
             var connId = Interlocked.Increment(ref _nextConnId);
             var b = Interlocked.Increment(ref _totalBorrowed);
             UpdatePeak(b);
-            var conn = new SQLiteConnection(connectionString);
-            conn.Open();
-            var holder = new TxHolder { Conn = conn, ConnLabel = connectionString };
-            using (var beginCmd = conn.CreateCommand())
+            try
             {
-                beginCmd.CommandText = "BEGIN";
-                beginCmd.ExecuteNonQuery();
+                var conn = new SQLiteConnection(connectionString);
+                try
+                {
+                    var holder = new TxHolder { Conn = conn, ConnLabel = connectionString };
+                    conn.Open();
+                    using (var beginCmd = conn.CreateCommand())
+                    {
+                        beginCmd.CommandText = "BEGIN";
+                        beginCmd.ExecuteNonQuery();
+                    }
+                    holder.Timer = new Timer(_ => OnTxTimeout(connId), null, TX_IDLE_MS, -1);
+                    _pinned[connId] = holder;
+                    return connId;
+                }
+                catch
+                {
+                    conn.Dispose();
+                    throw;
+                }
             }
-            holder.Timer = new Timer(_ => OnTxTimeout(connId), null, TX_IDLE_MS, -1);
-            _pinned[connId] = holder;
-            return connId;
+            finally
+            {
+                if (!_pinned.ContainsKey(connId))
+                    Interlocked.Decrement(ref _totalBorrowed);
+            }
         }
 
         /// <summary>
