@@ -1,7 +1,8 @@
 import { ref, shallowRef, watch } from 'vue';
 import { defineStore } from 'pinia';
 
-import { database } from '../services/database';
+import { database, dbVars } from '../services/database';
+import { adapter } from '../services/database/adapter/index.js';
 import { useFriendStore } from './friend';
 import { useVrcxStore } from './vrcx';
 import { watchState } from '../services/watchState';
@@ -26,10 +27,60 @@ export const useFeedStore = defineStore('Feed', () => {
         pageSizeLinked: true
     });
 
+    const feedChangeTables = [
+        'feed_gps',
+        'feed_status',
+        'feed_bio',
+        'feed_avatar',
+        'feed_online_offline'
+    ];
+    let feedChangeUnsubs = [];
+    let feedReloadTimer = null;
+
+    function scheduleFeedReload() {
+        if (feedReloadTimer) return;
+        feedReloadTimer = setTimeout(() => {
+            feedReloadTimer = null;
+            feedTableLookup({ silent: true }).catch((error) => {
+                console.error('[feed] external refresh failed', error);
+            });
+        }, 1000);
+    }
+
+    function subscribeFeedChanges() {
+        for (const unsubscribe of feedChangeUnsubs) unsubscribe();
+        feedChangeUnsubs = [];
+        if (!watchState.isLoggedIn || !dbVars.userPrefix) {
+            if (feedReloadTimer) {
+                clearTimeout(feedReloadTimer);
+                feedReloadTimer = null;
+            }
+            return;
+        }
+
+        const prefixes =
+            accountHub.isMergedView && accountHub.allUserPrefixes.length > 1
+                ? accountHub.allUserPrefixes
+                : [dbVars.userPrefix];
+        for (const prefix of prefixes) {
+            for (const tableName of feedChangeTables) {
+                const table = adapter.userTable(prefix, tableName);
+                try {
+                    feedChangeUnsubs.push(
+                        adapter.onTableChange(table, scheduleFeedReload)
+                    );
+                } catch (error) {
+                    console.error('[feed] change subscription failed', error);
+                }
+            }
+        }
+    }
+
     watch(
         () => watchState.isLoggedIn,
         (isLoggedIn) => {
             feedTableData.value = [];
+            subscribeFeedChanges();
             if (isLoggedIn) {
                 initFeedTable();
             }
@@ -42,6 +93,7 @@ export const useFeedStore = defineStore('Feed', () => {
         () => {
             if (watchState.isLoggedIn) {
                 feedTableData.value = [];
+                subscribeFeedChanges();
                 initFeedTable();
             }
         }
@@ -140,16 +192,18 @@ export const useFeedStore = defineStore('Feed', () => {
         return true;
     }
 
-    async function feedTableLookup() {
-        await configRepository.setString(
-            'VRCX_feedTableFilters',
-            JSON.stringify(feedTable.value.filter)
-        );
-        await configRepository.setBool(
-            'VRCX_feedTableVIPFilter',
-            feedTable.value.vip
-        );
-        feedTable.value.loading = true;
+    async function feedTableLookup({ silent = false } = {}) {
+        if (!silent) {
+            await configRepository.setString(
+                'VRCX_feedTableFilters',
+                JSON.stringify(feedTable.value.filter)
+            );
+            await configRepository.setBool(
+                'VRCX_feedTableVIPFilter',
+                feedTable.value.vip
+            );
+        }
+        if (!silent) feedTable.value.loading = true;
         try {
             let vipList = [];
             if (feedTable.value.vip) {
@@ -159,7 +213,10 @@ export const useFeedStore = defineStore('Feed', () => {
             const { dateFrom, dateTo } = feedTable.value;
 
             let rows;
-            if (accountHub.isMergedView && accountHub.allUserPrefixes.length > 1) {
+            if (
+                accountHub.isMergedView &&
+                accountHub.allUserPrefixes.length > 1
+            ) {
                 // Merged mode: aggregate across all account prefixes
                 rows = await lookupAggregatedFeed(
                     accountHub.allUserPrefixes,
@@ -185,7 +242,7 @@ export const useFeedStore = defineStore('Feed', () => {
             feedTableData.value = [];
             feedTableData.value = [...feedTableData.value, ...rows];
         } finally {
-            feedTable.value.loading = false;
+            if (!silent) feedTable.value.loading = false;
         }
     }
 
