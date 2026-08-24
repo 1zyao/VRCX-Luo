@@ -165,6 +165,11 @@ jobs:
       - name: Create test database
         run: mysql -h 127.0.0.1 -u root -proot -e "CREATE DATABASE IF NOT EXISTS vrcx_test;"
       - run: npm test -- --run
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+      - name: Dotnet read-only rejection tests (MySQL)
+        run: dotnet test Dotnet/VRCX.Tests --filter "Category=ReadOnlyRejection"
 
   # Phase 9 slice S12 (task 9.15): PostgreSQL 16/17 integration test matrix.
   # Uses ikalnytskyi/action-setup-postgres to provision PG on the runner
@@ -212,3 +217,15 @@ jobs:
           PG_TEST_VERSION: ${{ matrix.pg.version }}
           # PGSERVICE enables psql/libpq clients to connect without explicit URI.
           PGSERVICE: ${{ steps.postgres.outputs.service-name }}
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+      # step 级 env 复制 PG_TEST_* — 否则 env-gated dotnet 测试静默全 Skip 假绿
+      - name: Dotnet read-only rejection tests (PgSQL)
+        run: dotnet test Dotnet/VRCX.Tests --filter "Category=ReadOnlyRejection"
+        env:
+          PG_TEST_HOST: localhost
+          PG_TEST_PORT: 5432
+          PG_TEST_USER: vrcx
+          PG_TEST_PASSWORD: vrcx
+          PG_TEST_DB: vrcx

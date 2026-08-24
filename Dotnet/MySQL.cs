@@ -6,7 +6,9 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Reflection;
 using System.Threading;
+using System.Threading.Tasks;
 using MySqlConnector;
+using NLog;
 
 namespace VRCX
 {
@@ -71,6 +73,8 @@ namespace VRCX
 
         private MySqlDataSource _dataSource;
         private bool _initialized;
+
+        private static readonly Logger logger = LogManager.GetCurrentClassLogger();
 
         // ── Pool metrics (三态连接池监控,Issue #14) ───────────────────────
         private int _totalBorrowed;
@@ -280,9 +284,47 @@ namespace VRCX
 
             ApplyUserOptions(builder);
 
-            _dataSource = new MySqlDataSource(builder.ConnectionString);
+            // 浏览模式 (VRCX_NodeMode=browse, M2 §2.10 M9):连接层强制会话只读兜底。
+            // 通过 UseConnectionOpenedCallback 在每个新建立的连接上执行
+            // SET SESSION TRANSACTION READ ONLY。collector 分支构造逐字符不变
+            // (验收硬线:连接串仅由 builder 决定,不追加只读片段)。
+            var nodeMode = NodeMode.Normalize(VRCXStorage.Instance.Get("VRCX_NodeMode"));
+            var isReadOnly = nodeMode == "browse";
+            if (isReadOnly)
+            {
+                var dataSourceBuilder = new MySqlDataSourceBuilder(builder.ConnectionString);
+                dataSourceBuilder.UseConnectionOpenedCallback(OnBrowseConnectionOpened);
+                _dataSource = dataSourceBuilder.Build();
+            }
+            else
+            {
+                _dataSource = new MySqlDataSource(builder.ConnectionString);
+            }
             _maxPoolSize = (int)builder.MaximumPoolSize;
             _initialized = true;
+        }
+
+        /// <summary>
+        /// 浏览模式连接打开回调:对每个新建立的连接执行 SET SESSION TRANSACTION
+        /// READ ONLY。Conditions 为 None/New/Reset 时均设置,保证池中连接被
+        /// 复用/重置后仍保持只读。失败仅降级(连接层只读是 JS 门禁的兜底,
+        /// 不是唯一防线),记录 warn 不阻断连接。
+        /// </summary>
+        internal ValueTask OnBrowseConnectionOpened(
+            MySqlConnectionOpenedContext context,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                using var command = context.Connection.CreateCommand();
+                command.CommandText = "SET SESSION TRANSACTION READ ONLY";
+                command.ExecuteNonQuery();
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "browse 模式设置只读会话失败,降级为应用层只读门禁 (R-9)");
+            }
+            return ValueTask.CompletedTask;
         }
 
         /// <summary>

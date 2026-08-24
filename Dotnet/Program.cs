@@ -200,6 +200,17 @@ namespace VRCX
                 }
             }
 
+            // 浏览模式缺文件/只读初始化错误 (M2 §2.9 M10):C# 侧友好对话框。
+            catch (InvalidOperationException e) when (e.Message.StartsWith("浏览模式："))
+            {
+                logger.Fatal(e, "浏览模式初始化失败, closing.");
+                MessageBox.Show(
+                    e.Message,
+                    "浏览模式（只读）",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+            }
+
             #endregion
 
             catch (Exception e)

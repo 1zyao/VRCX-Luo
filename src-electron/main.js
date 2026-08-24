@@ -201,6 +201,24 @@ function createOverlayWindowShm() {
         );
     }
 })().catch(e => {
+    // 浏览模式缺文件 (M2 §2.9 M11):Electron 侧友好对话框替代日志,提示先以
+    // collector 模式启动完成初始化。
+    if (String(e && e.message).includes('浏览模式：数据库文件不存在')) {
+        try {
+            dialog.showMessageBoxSync({
+                type: 'warning',
+                title: '浏览模式（只读）',
+                message: '浏览模式：数据库文件不存在',
+                detail:
+                    '请先以 collector 模式启动一次完成初始化，或检查 VRCX_Database.name 配置。',
+                buttons: ['OK']
+            });
+        } catch (_) {
+            // 对话框失败不阻塞退出流程
+        }
+        process.exit(1);
+        return;
+    }
     const msg = '[bootstrap] Fatal error: ' + (e && e.stack ? e.stack : e);
     console.error(msg);
     try { fs.writeFileSync(path.join(app.getPath('userData'), 'bootstrap-error.log'), msg); } catch (_) {}

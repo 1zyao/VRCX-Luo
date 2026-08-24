@@ -455,6 +455,9 @@ namespace VRCX
                     : VRCXStorage.Instance.Get("VRCX_Database.name").Trim(),
                 @"[A-Za-z0-9_]");
 
+            var nodeMode = NodeMode.Normalize(VRCXStorage.Instance.Get("VRCX_NodeMode"));
+            var isReadOnly = nodeMode == "browse";
+
             var connectionString =
                 $"Host={host};Port={port};Username={username};Password={password};Database={name}"
                 + ";Maximum Pool Size=16"
@@ -468,6 +471,13 @@ namespace VRCX
                 + ";Connection Idle Lifetime=300" // 空闲 300s 自动回收(与 MySQL ConnectionIdleTimeout=300 对称)
                 + ";Timeout=15"                 // 建连超时 15s(对称 MySQL ConnectionTimeout=15)
                 + ";CommandTimeout=30";         // SQL 执行超时 30s(对称 MySQL DefaultCommandTimeout=30)
+
+            // 浏览模式 (VRCX_NodeMode=browse, M2 §2.10 M8):连接层强制事务只读兜底。
+            // collector 分支连接串逐字符不变(验收硬线)。
+            if (isReadOnly)
+            {
+                connectionString += ";Options=-c default_transaction_read_only=on";
+            }
 
             var builder = new NpgsqlDataSourceBuilder(connectionString);
             _dataSource = builder.Build();
