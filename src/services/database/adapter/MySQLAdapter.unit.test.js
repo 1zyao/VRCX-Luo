@@ -424,28 +424,32 @@ describe('createIndex 幂等(预检查 + 兜底)', () => {
     });
 
     test('纯字符串 reject 含 Duplicate key name → 吞掉返回 0', async () => {
-        adapter.executeNonQuery = vi.fn().mockRejectedValue(
-            "MySqlConnector.MySqlException (0x80004005): Duplicate key name 'idx_x'"
-        );
+        adapter.executeNonQuery = vi
+            .fn()
+            .mockRejectedValue(
+                "MySqlConnector.MySqlException (0x80004005): Duplicate key name 'idx_x'"
+            );
         const result = await adapter.createIndex('idx_x', 't', ['c']);
         expect(result).toBe(0);
     });
 
     test('Error 对象 reject 含 Duplicate key name(完整 CefSharp 链)→ 吞掉', async () => {
-        adapter.executeNonQuery = vi.fn().mockRejectedValue(
-            new Error(
-                'System.InvalidOperationException: Could not execute method: ... \n' +
-                    " ---> MySqlConnector.MySqlException (0x80004005): Duplicate key name 'idx_x'"
-            )
-        );
+        adapter.executeNonQuery = vi
+            .fn()
+            .mockRejectedValue(
+                new Error(
+                    'System.InvalidOperationException: Could not execute method: ... \n' +
+                        " ---> MySqlConnector.MySqlException (0x80004005): Duplicate key name 'idx_x'"
+                )
+            );
         const result = await adapter.createIndex('idx_x', 't', ['c']);
         expect(result).toBe(0);
     });
 
     test('无关错误 → 重新抛出', async () => {
-        adapter.executeNonQuery = vi.fn().mockRejectedValue(
-            new Error('some other error')
-        );
+        adapter.executeNonQuery = vi
+            .fn()
+            .mockRejectedValue(new Error('some other error'));
         await expect(adapter.createIndex('idx_x', 't', ['c'])).rejects.toThrow(
             'some other error'
         );
@@ -490,7 +494,7 @@ describe('CAST 方言映射(_mapMySqlDialect)', () => {
             'SELECT CAST(NULL AS TEXT) AS status, CAST(NULL AS BIGINT) AS time FROM t';
         await adapter.execute(() => {}, sql, {});
         expect(globalThis.MySQL.Execute.mock.calls[0][0]).toBe(
-            'SELECT CAST(NULL AS CHAR) AS status, CAST(NULL AS SIGNED) AS time FROM t'
+            'SELECT CONVERT(CAST(NULL AS CHAR) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS status, CAST(NULL AS SIGNED) AS time FROM t'
         );
     });
 
@@ -498,7 +502,7 @@ describe('CAST 方言映射(_mapMySqlDialect)', () => {
         const sql = 'INSERT INTO t (a) VALUES (CAST(NULL AS TEXT))';
         await adapter.executeNonQuery(sql, {});
         expect(globalThis.MySQL.ExecuteNonQuery.mock.calls[0][0]).toBe(
-            'INSERT INTO t (a) VALUES (CAST(NULL AS CHAR))'
+            'INSERT INTO t (a) VALUES (CONVERT(CAST(NULL AS CHAR) USING utf8mb4) COLLATE utf8mb4_unicode_ci)'
         );
     });
 
@@ -511,7 +515,9 @@ describe('CAST 方言映射(_mapMySqlDialect)', () => {
     test('_mapMySqlDialect 幂等(重复调用无副作用)', () => {
         const once = adapter._mapMySqlDialect('CAST(NULL AS TEXT)');
         const twice = adapter._mapMySqlDialect(once);
-        expect(twice).toBe('CAST(NULL AS CHAR)');
+        expect(twice).toBe(
+            'CONVERT(CAST(NULL AS CHAR) USING utf8mb4) COLLATE utf8mb4_unicode_ci'
+        );
     });
 });
 
@@ -528,8 +534,8 @@ describe('_readChangeCounter', () => {
             });
             const version = await adapter._readChangeCounter();
             expect(version).toBe(42);
-            const sql = globalThis.MySQL.ExecuteJsonOnConnection.mock
-                .calls[0][1];
+            const sql =
+                globalThis.MySQL.ExecuteJsonOnConnection.mock.calls[0][1];
             expect(sql).toContain('performance_schema');
             expect(sql).toContain('table_io_waits_summary_by_table');
         } finally {
@@ -546,6 +552,26 @@ describe('_readChangeCounter', () => {
                 connection: 'mysql://root:pass@127.0.0.1:3306/vrcx_test'
             });
             await expect(adapter._readChangeCounter()).resolves.toBeNull();
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('无 performance_schema 权限时返回 null', async () => {
+        vi.stubGlobal('MySQL', {
+            ExecuteJsonOnConnection: vi
+                .fn()
+                .mockRejectedValue(new Error('SELECT command denied'))
+        });
+        try {
+            const adapter = new MySQLAdapter({
+                connection: 'mysql://root:pass@127.0.0.1:3306/vrcx_test'
+            });
+            await expect(adapter._readChangeCounter()).resolves.toBeNull();
+            await expect(adapter._readChangeCounter()).resolves.toBeNull();
+            expect(
+                globalThis.MySQL.ExecuteJsonOnConnection
+            ).toHaveBeenCalledTimes(1);
         } finally {
             vi.unstubAllGlobals();
         }
