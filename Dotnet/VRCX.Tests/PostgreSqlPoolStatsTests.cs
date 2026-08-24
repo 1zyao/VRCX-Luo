@@ -73,6 +73,70 @@ public sealed class PostgreSqlPoolStatsTests
         }
     }
 
+    [Fact]
+    [Trait("Category", "PoolStats")]
+    public void ExecuteNonQueryFailures_ReturnBorrowCounterToBaseline()
+    {
+        var postgres = CreateUnavailablePostgreSql();
+        try
+        {
+            for (var i = 0; i < 24; i++)
+            {
+                var act = () => postgres.ExecuteNonQuery("SELECT 1");
+                act.Should().Throw<Exception>();
+            }
+
+            GetStats(postgres).availableCapacity.Should().Be(16);
+        }
+        finally
+        {
+            postgres.Exit();
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "PoolStats")]
+    public void BeginTransactionFailures_ReturnBorrowCounterToBaseline()
+    {
+        var postgres = CreateUnavailablePostgreSql();
+        try
+        {
+            for (var i = 0; i < 24; i++)
+            {
+                var act = () => postgres.BeginTransaction();
+                act.Should().Throw<Exception>();
+            }
+
+            GetStats(postgres).availableCapacity.Should().Be(16);
+        }
+        finally
+        {
+            postgres.Exit();
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "PoolStats")]
+    public void BeginTransactionOnConnectionFailures_ReturnBorrowCounterToBaseline()
+    {
+        var postgres = CreateUnavailablePostgreSql();
+        try
+        {
+            var connectionString = CreateUnavailableConnectionString();
+            for (var i = 0; i < 24; i++)
+            {
+                var act = () => postgres.BeginTransactionOnConnection(connectionString);
+                act.Should().Throw<Exception>();
+            }
+
+            GetStats(postgres).availableCapacity.Should().Be(16);
+        }
+        finally
+        {
+            postgres.Exit();
+        }
+    }
+
     private static PostgreSQL CreateUnavailablePostgreSql()
     {
         var port = GetUnusedLoopbackPort();
@@ -86,6 +150,12 @@ public sealed class PostgreSqlPoolStatsTests
         var postgres = new PostgreSQL();
         postgres.Init();
         return postgres;
+    }
+
+    private static string CreateUnavailableConnectionString()
+    {
+        var port = GetUnusedLoopbackPort();
+        return $"Host=127.0.0.1;Port={port};Username=test;Password=test;Database=test;Timeout=1";
     }
 
     private static int GetUnusedLoopbackPort()

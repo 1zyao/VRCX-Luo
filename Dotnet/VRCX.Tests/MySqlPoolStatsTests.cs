@@ -75,12 +75,76 @@ public sealed class MySqlPoolStatsTests
         }
     }
 
+    [Fact]
+    [Trait("Category", "PoolStats")]
+    public void ExecuteNonQueryFailures_ReturnBorrowCounterToBaseline()
+    {
+        var mysql = CreateUnavailableMySql();
+        try
+        {
+            for (var i = 0; i < 24; i++)
+            {
+                var act = () => mysql.ExecuteNonQuery("SELECT 1");
+                act.Should().Throw<Exception>();
+            }
+
+            GetStats(mysql).availableCapacity.Should().Be(16);
+        }
+        finally
+        {
+            mysql.Exit();
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "PoolStats")]
+    public void BeginTransactionFailures_ReturnBorrowCounterToBaseline()
+    {
+        var mysql = CreateUnavailableMySql();
+        try
+        {
+            for (var i = 0; i < 24; i++)
+            {
+                var act = () => mysql.BeginTransaction();
+                act.Should().Throw<Exception>();
+            }
+
+            GetStats(mysql).availableCapacity.Should().Be(16);
+        }
+        finally
+        {
+            mysql.Exit();
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "PoolStats")]
+    public void BeginTransactionOnConnectionFailures_ReturnBorrowCounterToBaseline()
+    {
+        var mysql = CreateUnavailableMySql();
+        try
+        {
+            var connectionString = CreateUnavailableConnectionString();
+            for (var i = 0; i < 24; i++)
+            {
+                var act = () => mysql.BeginTransactionOnConnection(connectionString);
+                act.Should().Throw<Exception>();
+            }
+
+            GetStats(mysql).availableCapacity.Should().Be(16);
+        }
+        finally
+        {
+            mysql.Exit();
+        }
+    }
+
     private static MySQL CreateUnavailableMySql()
     {
-        var port = GetUnusedLoopbackPort();
+        var connectionString = CreateUnavailableConnectionString();
         VRCXStorage.Instance.Clear();
         VRCXStorage.Instance.Set("VRCX_Database.host", "127.0.0.1");
-        VRCXStorage.Instance.Set("VRCX_Database.port", port.ToString());
+        VRCXStorage.Instance.Set("VRCX_Database.port", GetPort(connectionString).ToString());
         VRCXStorage.Instance.Set("VRCX_Database.username", "test");
         VRCXStorage.Instance.Set("VRCX_Database.password", "test");
         VRCXStorage.Instance.Set("VRCX_Database.name", "test");
@@ -90,6 +154,15 @@ public sealed class MySqlPoolStatsTests
         mysql.Init();
         return mysql;
     }
+
+    private static string CreateUnavailableConnectionString()
+    {
+        var port = GetUnusedLoopbackPort();
+        return $"Server=127.0.0.1;Port={port};User ID=test;Password=test;Database=test;Connection Timeout=1";
+    }
+
+    private static int GetPort(string connectionString)
+        => int.Parse(connectionString.Split(';')[1].Split('=')[1]);
 
     private static int GetUnusedLoopbackPort()
     {
