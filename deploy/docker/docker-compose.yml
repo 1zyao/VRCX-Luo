@@ -1,0 +1,69 @@
+# Run from the repository root:
+#   docker compose -f deploy/docker/docker-compose.yml up -d --build
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: vrcx-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: vrcx-root
+      MYSQL_DATABASE: vrcx
+      MYSQL_USER: vrcx
+      MYSQL_PASSWORD: vrcx
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - vrcx-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -pvrcx-root"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  vrcx1: &vrcx
+    build:
+      context: ../../
+      dockerfile: deploy/docker/Dockerfile
+    image: vrcx-k:latest
+    container_name: vrcx-1
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      TZ: Asia/Shanghai
+      VNC: "1"
+      VRCX_DB_MODE: mysql
+      VRCX_DB_HOST: mysql
+      VRCX_DB_PORT: "3306"
+      VRCX_DB_NAME: vrcx
+      VRCX_DB_USERNAME: vrcx
+      VRCX_DB_PASSWORD: vrcx
+      VRCX_OPEN_DEVTOOLS: "1"
+    volumes:
+      - vrcx-data-1:/root/.config/VRCX
+    ports:
+      - "6080:6080"
+
+  vrcx2:
+    <<: *vrcx
+    container_name: vrcx-2
+    volumes:
+      - vrcx-data-2:/root/.config/VRCX
+    ports:
+      - "6081:6080"
+
+  vrcx3:
+    <<: *vrcx
+    container_name: vrcx-3
+    volumes:
+      - vrcx-data-3:/root/.config/VRCX
+    ports:
+      - "6082:6080"
+
+volumes:
+  vrcx-mysql-data:
+  vrcx-data-1:
+  vrcx-data-2:
+  vrcx-data-3:

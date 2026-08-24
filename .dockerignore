@@ -1,0 +1,27 @@
+# Build context exclusions
+node_modules
+build
+.git
+.github
+.gito
+.vs
+.vscode
+.zed
+.idea
+Installer
+tools
+coverage
+TempLogs
+test
+docs
+*.log
+*.bak
+.env.sentry-build-plugin
+
+# .NET intermediates rebuilt in the container
+**/obj
+**/obj1
+
+# Local databases and temporary files
+*.sqlite
+*.db

@@ -63,6 +63,8 @@ const x11 = args.includes('--x11');
 const noDesktop = args.includes('--no-desktop');
 const startup = args.includes('--startup');
 const debug = args.includes('--hot-reload');
+const openDevTools =
+    args.includes('--open-devtools') || process.env.VRCX_OPEN_DEVTOOLS === '1';
 const noUpdater =
     args.includes('--no-updater') ||
     fs.existsSync(path.join(rootDir, '.no-updater'));
@@ -507,6 +509,8 @@ function createWindow() {
     mainWindow.loadFile(indexPath);
     if (debug) {
         mainWindow.loadURL('http://localhost:9000/index.html');
+    }
+    if (debug || openDevTools) {
         mainWindow.webContents.openDevTools();
     }
 
