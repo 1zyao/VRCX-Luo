@@ -62,6 +62,12 @@ const database = {
 
     async initTables() {
         await adapter.initGlobalSchema();
+        await adapter.createTable('collector_leases', [
+            { name: 'lease_key', type: 'TEXT', constraints: 'PRIMARY KEY' },
+            { name: 'owner_token', type: 'TEXT' },
+            { name: 'expires_at', type: 'BIGINT' },
+            { name: 'heartbeat_at', type: 'BIGINT' }
+        ]);
     },
 
     /**

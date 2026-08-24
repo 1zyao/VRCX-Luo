@@ -34,6 +34,7 @@ import webApiService from '../services/webapi';
 
 import * as workerTimers from 'worker-timers';
 import { useActivityStore } from './activity';
+import { feedCollectorLease } from '../services/database/feedCollectorLease.js';
 
 export const useAuthStore = defineStore('Auth', () => {
     const advancedSettingsStore = useAdvancedSettingsStore();
@@ -1049,6 +1050,7 @@ export const useAuthStore = defineStore('Auth', () => {
             return;
         }
         await database.initUserTables(userStore.currentUser.id);
+        await feedCollectorLease.start();
         advancedSettingsStore.runAvatarAutoCleanup(userStore.currentUser.id);
         await trackedNonFriendsStore.loadTrackedNonFriends();
         await manualRelationsStore.loadManualRelations();

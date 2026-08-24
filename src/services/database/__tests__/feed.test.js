@@ -7,6 +7,12 @@ vi.mock('../index.js', () => ({
     }
 }));
 
+vi.mock('../feedCollectorLease.js', () => ({
+    feedCollectorLease: {
+        isOwner: () => true
+    }
+}));
+
 import { feed } from '../feed.js';
 import { adapter } from '../adapter/index.js';
 

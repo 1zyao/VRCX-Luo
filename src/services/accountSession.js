@@ -17,6 +17,7 @@ import { reactive } from 'vue';
 import { parseLocation } from '../shared/utils/location.js';
 import { AppDebug } from './appConfig';
 import { adapter } from './database/adapter/index.js';
+import { feedCollectorLease } from './database/feedCollectorLease.js';
 import webApiService from './webapi.js';
 import * as workerTimers from 'worker-timers';
 import { useModalStore } from '../stores/modal';
@@ -126,6 +127,7 @@ export class AccountSession {
 
         // Initialise DB tables for this account
         await this._initTables();
+        await feedCollectorLease.start();
 
         // Load friends list
         await this._loadFriends();
@@ -344,6 +346,7 @@ export class AccountSession {
     }
 
     _writeGPS(userId, displayName, location, worldName, previousLocation, groupName) {
+        if (!feedCollectorLease.isOwner()) return;
         const p = this.userPrefix;
         adapter.insert(`${p}_feed_gps`, {
             created_at: nowIso(),
@@ -358,6 +361,7 @@ export class AccountSession {
     }
 
     _writeOnlineOffline(userId, displayName, type, location, worldName, groupName) {
+        if (!feedCollectorLease.isOwner()) return;
         const p = this.userPrefix;
         adapter.insert(`${p}_feed_online_offline`, {
             created_at: nowIso(),

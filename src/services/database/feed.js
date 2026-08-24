@@ -1,6 +1,7 @@
 import { dbVars } from '../database';
 
 import { adapter } from './adapter/index.js';
+import { feedCollectorLease } from './feedCollectorLease.js';
 
 /**
  * 22-column schema shared by all feed UNION ALL queries.
@@ -205,6 +206,7 @@ function mapFeedRow(dbRow) {
 
 const feed = {
     addGPSToDatabase(entry) {
+        if (!feedCollectorLease.isOwner()) return;
         adapter.insert(
             `${adapter.userTable(dbVars.userPrefix, 'feed_gps')}`,
             {
@@ -222,6 +224,7 @@ const feed = {
     },
 
     addStatusToDatabase(entry) {
+        if (!feedCollectorLease.isOwner()) return;
         adapter.insert(
             `${adapter.userTable(dbVars.userPrefix, 'feed_status')}`,
             {
@@ -238,6 +241,7 @@ const feed = {
     },
 
     addBioToDatabase(entry) {
+        if (!feedCollectorLease.isOwner()) return;
         adapter.insert(
             `${adapter.userTable(dbVars.userPrefix, 'feed_bio')}`,
             {
@@ -335,6 +339,7 @@ const feed = {
     },
 
     addAvatarToDatabase(entry) {
+        if (!feedCollectorLease.isOwner()) return;
         adapter.insert(
             `${adapter.userTable(dbVars.userPrefix, 'feed_avatar')}`,
             {
@@ -375,6 +380,7 @@ const feed = {
     },
 
     addOnlineOfflineToDatabase(entry) {
+        if (!feedCollectorLease.isOwner()) return;
         adapter.insert(
             `${adapter.userTable(dbVars.userPrefix, 'feed_online_offline')}`,
             {
