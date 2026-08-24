@@ -1113,6 +1113,9 @@ class MySQLAdapter extends EngineAdapter {
         await this.executeNonQuery(
             `CREATE TABLE IF NOT EXISTS configs (\`key\` VARCHAR(255) PRIMARY KEY, \`value\` LONGTEXT)`
         );
+        await this.executeNonQuery(
+            `CREATE TABLE IF NOT EXISTS node_registry (\`node_id\` VARCHAR(64) PRIMARY KEY, \`mode\` VARCHAR(16) NOT NULL, \`prefixes\` TEXT NOT NULL, \`heartbeat_at\` VARCHAR(255) NOT NULL)`
+        );
         // 幂等列类型升级:旧库 configs/cookies 的 `value` 列可能是 TEXT/VARCHAR
         // (历史 schema),CREATE TABLE IF NOT EXISTS 不会升级既有列 → 写入大 JSON
         // (VRChat Registry 备份 / 序列化 CookieCollection) 时 MySqlConnector 抛

@@ -1,6 +1,6 @@
 import { reactive, computed } from 'vue';
 import { database } from '../services/database';
-import { useFriendStore, useTrackedNonFriendsStore, useManualRelationsStore } from '../stores';
+import { useFriendStore, useTrackedNonFriendsStore, useManualRelationsStore, useVrcxStore } from '../stores';
 import { userRequest } from '../api';
 import { watchState } from '../services/watchState';
 
@@ -87,6 +87,7 @@ function buildTargetList() {
 export async function runSilentInfoFetch() {
     if (infoFetchState.status === 'running') return;
     if (!watchState.isLoggedIn) return;
+    if (useVrcxStore().isBrowse) return;
 
     cancelled = false;
     infoFetchState.status = 'running';

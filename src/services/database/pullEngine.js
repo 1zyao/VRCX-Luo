@@ -55,7 +55,7 @@
 import { adapter, createAdapter } from './adapter/index.js';
 
 /**
- * 18 global tables (public schema) — mirrors `pushEngine.js`'s
+ * 19 global tables (public schema) — mirrors `pushEngine.js`'s
  * `GLOBAL_TABLES` and `SQLiteAdapter.initGlobalSchema` /
  * `PgSQLAdapter.initGlobalSchema` / `MySQLAdapter.initGlobalSchema`
  * table-for-table. Used to split the flat MySQL/SQLite `listTablesTypes`
@@ -80,7 +80,8 @@ const GLOBAL_TABLES = [
     'avatar_memos',
     'avatar_tags',
     'cookies',
-    'configs'
+    'configs',
+    'node_registry'
 ];
 
 /**

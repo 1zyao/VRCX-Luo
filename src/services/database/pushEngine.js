@@ -58,7 +58,7 @@
 import { adapter, createAdapter } from './adapter/index.js';
 
 /**
- * 18 global tables (public schema) — mirrors `SQLiteAdapter.initGlobalSchema`
+ * 19 global tables (public schema) — mirrors `SQLiteAdapter.initGlobalSchema`
  * (L985-1049), `PgSQLAdapter.initGlobalSchema` (L1293-1341) and
  * `MySQLAdapter.initGlobalSchema` table-for-table. Order matches the
  * schema-init order so the push log reads naturally.
@@ -82,7 +82,8 @@ const GLOBAL_TABLES = [
     'avatar_memos',
     'avatar_tags',
     'cookies',
-    'configs'
+    'configs',
+    'node_registry'
 ];
 
 /**

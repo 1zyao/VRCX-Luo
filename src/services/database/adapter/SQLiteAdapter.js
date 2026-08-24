@@ -1129,6 +1129,9 @@ class SQLiteAdapter extends EngineAdapter {
         await this.executeNonQuery(
             `CREATE TABLE IF NOT EXISTS configs (key TEXT PRIMARY KEY, value LONGTEXT)`
         );
+        await this.executeNonQuery(
+            `CREATE TABLE IF NOT EXISTS node_registry (node_id TEXT PRIMARY KEY, mode TEXT NOT NULL, prefixes TEXT NOT NULL, heartbeat_at TEXT NOT NULL)`
+        );
     }
 
     // ── Transaction ──────────────────────────────────────────────────

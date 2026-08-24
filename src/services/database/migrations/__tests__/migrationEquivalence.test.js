@@ -338,3 +338,41 @@ describe('v16 migration — holistic dump + idempotency', () => {
         expect(second).toBe(first);
     });
 });
+
+// ── v17: node_registry ───────────────────────────────────────────────────
+
+describe('v17 migration — node_registry', () => {
+    test('creates node_registry with full columns and node_id primary key', async () => {
+        await runMigrations(0, 17);
+        const cols = columnsOf('node_registry');
+        expect(cols).toEqual(
+            expect.arrayContaining([
+                'node_id',
+                'mode',
+                'prefixes',
+                'heartbeat_at'
+            ])
+        );
+        const pk = db
+            .prepare(`PRAGMA table_info("node_registry")`)
+            .all()
+            .filter((c) => c.pk === 1);
+        expect(pk.map((c) => c.name)).toEqual(['node_id']);
+    });
+
+    test('upgrades an existing v16 database idempotently', async () => {
+        await runMigrations(0, 16);
+        const { normalizeDump } = await import('./dumpNormalizer.js');
+        const before = normalizeDump(db);
+
+        await runMigrations(16, 17);
+        const first = normalizeDump(db);
+        await runMigrations(16, 17);
+        const second = normalizeDump(db);
+
+        expect(second).toBe(first);
+        expect(columnsOf('node_registry')).toContain('node_id');
+        // v16 → v17 adds node_registry without touching existing tables
+        expect(first).not.toBe(before);
+    });
+});

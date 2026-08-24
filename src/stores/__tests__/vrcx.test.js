@@ -46,16 +46,26 @@ const mocks = vi.hoisted(() => ({
         init: vi.fn(),
         remove: vi.fn()
     },
-    refreshCustomScript: vi.fn()
+    refreshCustomScript: vi.fn(),
+    nodeRegistryMock: {
+        detectActiveCollectors: vi.fn(async () => []),
+        startHeartbeat: vi.fn(async () => undefined),
+        stopHeartbeat: vi.fn()
+    },
+    downgradeToReadOnly: vi.fn(async () => undefined)
 }));
 
 // ── module mocks (paths relative to src/stores/__tests__/) ────────────
 
 vi.mock('../../services/database/adapter/index.js', () => ({
     adapter: mocks.adapterMock,
-    createAdapter: vi.fn()
+    createAdapter: vi.fn(),
+    downgradeToReadOnly: mocks.downgradeToReadOnly
 }));
 vi.mock('../../services/database', () => ({ database: mocks.databaseMock }));
+vi.mock('../../services/database/nodeRegistry.js', () => ({
+    nodeRegistry: mocks.nodeRegistryMock
+}));
 vi.mock('../../services/config', () => ({ default: mocks.configRepoMock }));
 vi.mock('../../shared/utils/base/ui', () => ({
     refreshCustomScript: mocks.refreshCustomScript
@@ -131,7 +141,7 @@ vi.mock('vue-i18n', async (importOriginal) => {
 
 import { useVrcxStore } from '../vrcx';
 
-const TARGET_DB_VERSION = 16;
+const TARGET_DB_VERSION = 17;
 
 /**
  * 安装 VRCXStorage 全局 mock。`nodeMode` 为 `VRCX_NodeMode` 的返回值
@@ -304,7 +314,7 @@ describe('vrcx 启动：browse 模式升级树旁路（§2.4 / §4.4）', () => 
 });
 
 describe('vrcx 启动：collector 分支决策树（改动前行为回归）', () => {
-    test('collector：v == target → 无事可做', async () => {
+    test('collector：v == target → 无事可做，启动心跳', async () => {
         const store = useVrcxStore();
         await store.waitForDatabaseInit();
 
@@ -312,17 +322,68 @@ describe('vrcx 启动：collector 分支决策树（改动前行为回归）', (
         expect(mocks.databaseMock.runMigrations).not.toHaveBeenCalled();
         expect(vrcxStorageMock.GetBackup).not.toHaveBeenCalled();
         expect(mocks.configRepoMock.setInt).not.toHaveBeenCalled();
+        expect(mocks.nodeRegistryMock.startHeartbeat).toHaveBeenCalledWith(
+            'collector'
+        );
         expect(store.databaseReadyForAutoLogin).toBe(true);
     });
 
-    test('auto ≡ collector（§2.3）：v == target → 无事可做', async () => {
+    test('auto：无活跃采集节点 → collector 心跳启动，v == target 无事可做', async () => {
         vrcxStorageMock = installVrcxStorage('auto');
+        mocks.nodeRegistryMock.detectActiveCollectors.mockResolvedValue([]);
 
         const store = useVrcxStore();
         await store.waitForDatabaseInit();
 
+        expect(mocks.nodeRegistryMock.detectActiveCollectors).toHaveBeenCalled();
+        expect(mocks.nodeRegistryMock.startHeartbeat).toHaveBeenCalledWith(
+            'collector'
+        );
+        expect(mocks.downgradeToReadOnly).not.toHaveBeenCalled();
+        expect(store.state.effectiveNodeMode).toBe('collector');
         expect(mocks.databaseMock.runMigrations).not.toHaveBeenCalled();
         expect(vrcxStorageMock.GetBackup).not.toHaveBeenCalled();
+        expect(store.databaseReadyForAutoLogin).toBe(true);
+    });
+
+    test('auto：检测到活跃采集节点 → 降级只读，进入浏览模式，不启动心跳', async () => {
+        vrcxStorageMock = installVrcxStorage('auto');
+        mocks.nodeRegistryMock.detectActiveCollectors.mockResolvedValue([
+            {
+                nodeId: 'node-other',
+                mode: 'collector',
+                prefixes: 'usr_a',
+                heartbeatAt: new Date().toISOString()
+            }
+        ]);
+
+        const store = useVrcxStore();
+        await store.waitForDatabaseInit();
+
+        expect(mocks.downgradeToReadOnly).toHaveBeenCalled();
+        expect(mocks.nodeRegistryMock.startHeartbeat).not.toHaveBeenCalled();
+        expect(store.state.effectiveNodeMode).toBe('browse');
+        expect(store.state.browseSource).toBe('auto-detected');
+        expect(store.state.detectedNodeIds).toEqual(['node-other']);
+        expect(logSpy).toHaveBeenCalledWith(
+            '[browse] 浏览模式（只读）已启用：检测到其他活跃采集节点（auto）'
+        );
+        expect(mocks.databaseMock.runMigrations).not.toHaveBeenCalled();
+        expect(store.databaseReadyForAutoLogin).toBe(true);
+    });
+
+    test('auto：检测表缺失（nodeRegistry 内部容错返回空）→ collector 心跳启动', async () => {
+        vrcxStorageMock = installVrcxStorage('auto');
+        mocks.nodeRegistryMock.detectActiveCollectors.mockResolvedValue([]);
+
+        const store = useVrcxStore();
+        await store.waitForDatabaseInit();
+
+        expect(mocks.downgradeToReadOnly).not.toHaveBeenCalled();
+        expect(mocks.nodeRegistryMock.startHeartbeat).toHaveBeenCalledWith(
+            'collector'
+        );
+        expect(store.state.effectiveNodeMode).toBe('collector');
         expect(store.databaseReadyForAutoLogin).toBe(true);
     });
 
@@ -332,6 +393,9 @@ describe('vrcx 启动：collector 分支决策树（改动前行为回归）', (
         const store = useVrcxStore();
         await store.waitForDatabaseInit();
 
+        expect(mocks.nodeRegistryMock.startHeartbeat).toHaveBeenCalledWith(
+            'collector'
+        );
         expect(mocks.databaseMock.runMigrations).toHaveBeenCalledWith(
             10,
             TARGET_DB_VERSION,
@@ -354,6 +418,9 @@ describe('vrcx 启动：collector 分支决策树（改动前行为回归）', (
         const store = useVrcxStore();
         await store.waitForDatabaseInit();
 
+        expect(mocks.nodeRegistryMock.startHeartbeat).toHaveBeenCalledWith(
+            'collector'
+        );
         // Branch B 入口：读取备份配置
         expect(vrcxStorageMock.GetBackup).toHaveBeenCalled();
         // bak 指向当前库（self-reference 去重）→ 原地 init + fix

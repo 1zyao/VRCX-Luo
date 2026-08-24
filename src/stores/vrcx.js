@@ -1,4 +1,4 @@
-import { reactive, ref, watch } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import { defineStore } from 'pinia';
 import { toast } from 'vue-sonner';
 import { useI18n } from 'vue-i18n';
@@ -43,12 +43,17 @@ import { clearVRCXCache } from '../coordinators/vrcxCoordinator';
 import { resetSearchIndexOnLogin } from '../coordinators/searchIndexCoordinator';
 import { watchState } from '../services/watchState';
 
-import { adapter, createAdapter } from '../services/database/adapter/index.js';
+import {
+    adapter,
+    createAdapter,
+    downgradeToReadOnly
+} from '../services/database/adapter/index.js';
 import { normalizeNodeMode } from '../services/database/adapter/readOnlyGate.js';
+import { nodeRegistry } from '../services/database/nodeRegistry.js';
 import configRepository from '../services/config';
 
 // 目标数据库版本
-const TARGET_DB_VERSION = 16;
+const TARGET_DB_VERSION = 17;
 
 export const useVrcxStore = defineStore('Vrcx', () => {
     const gameStore = useGameStore();
@@ -74,8 +79,18 @@ export const useVrcxStore = defineStore('Vrcx', () => {
         sizeWidth: 800,
         sizeHeight: 600,
         windowState: '',
-        externalNotifierVersion: 0
+        externalNotifierVersion: 0,
+        // ── 浏览模式（BROWSE_MODE_M2_DESIGN.md §2.12）──
+        // nodeMode: 原始 VRCX_NodeMode（'browse' | 'collector' | 'auto'）
+        // effectiveNodeMode: 归一化后实际生效模式（'browse' | 'collector'）
+        // browseSource: 进入 browse 的来源（'explicit' | 'auto-detected' | null）
+        // detectedNodeIds: auto 检测到的其他活跃 collector 节点
+        nodeMode: null,
+        effectiveNodeMode: 'collector',
+        browseSource: null,
+        detectedNodeIds: []
     });
+    const isBrowse = computed(() => state.effectiveNodeMode === 'browse');
     const databaseUpgradeState = ref({
         visible: false,
         fromVersion: 0,
@@ -171,15 +186,37 @@ export const useVrcxStore = defineStore('Vrcx', () => {
                 0
             );
 
-            // ── 浏览模式旁路（BROWSE_MODE_M1_DESIGN.md §2.4 / §4.4）───
+            // ── 浏览模式决策（BROWSE_MODE_M1_DESIGN.md §2.4 / §4.4；
+            //    M2_DESIGN.md §2.1 auto 时序）──
             // browse 模式跳过整个升级决策树（Branch A/B）：只读连接无法
             // 执行 runMigrations / initTables，版本号归 collector 维护。
             // 改为 schema 探测 + 启动日志三连，随后继续启动（configs 表
             // 缺失时 configRepository 走降级读，不崩溃）。
-            const nodeMode = normalizeNodeMode(
-                await VRCXStorage.Get('VRCX_NodeMode')
-            );
-            if (nodeMode === 'browse') {
+            // auto 模式：启动时检测其他活跃 collector → 降级 browse；
+            // 无 → collector（心跳 + Branch A/B）。
+            const rawNodeMode = String(
+                await VRCXStorage.Get('VRCX_NodeMode') ?? ''
+            ).trim();
+            state.nodeMode = rawNodeMode;
+            const nodeMode = normalizeNodeMode(rawNodeMode);
+
+            let effectiveMode = nodeMode;
+            let browseSource = null;
+            if (nodeMode !== 'browse' && rawNodeMode.toLowerCase() === 'auto') {
+                const detected = await nodeRegistry.detectActiveCollectors();
+                state.detectedNodeIds = detected.map((d) => d.nodeId);
+                if (detected.length > 0) {
+                    await downgradeToReadOnly();
+                    effectiveMode = 'browse';
+                    browseSource = 'auto-detected';
+                }
+            } else if (nodeMode === 'browse') {
+                browseSource = 'explicit';
+            }
+            state.effectiveNodeMode = effectiveMode;
+            state.browseSource = browseSource;
+
+            if (effectiveMode === 'browse') {
                 // schema 探测：listTables 是读操作，只读门禁下透传。
                 // 探测失败不阻断启动（fail-safe，同 §4.4「不崩溃」语义）。
                 let configsTableExists = false;
@@ -195,7 +232,7 @@ export const useVrcxStore = defineStore('Vrcx', () => {
                     );
                 }
                 console.log(
-                    '[browse] 浏览模式（只读）已启用：VRCX_NodeMode=browse'
+                    `[browse] 浏览模式（只读）已启用：${browseSource === 'auto-detected' ? '检测到其他活跃采集节点（auto）' : 'VRCX_NodeMode=browse'}`
                 );
                 console.log(
                     `[browse] 数据库版本：${state.databaseVersion}（目标 ${TARGET_DB_VERSION}）；` +
@@ -215,25 +252,31 @@ export const useVrcxStore = defineStore('Vrcx', () => {
                 console.log(
                     '[browse] 只读：DB 写入被门禁丢弃；登录状态与本地设置不会持久化；建议单实例多账号'
                 );
-            } else if (state.databaseVersion > 0) {
-                // ── Branch A: 已有版本号的数据库 ──
-                if (state.databaseVersion < TARGET_DB_VERSION) {
-                    const ok = await upgradeInPlace(
-                        state.databaseVersion,
+            } else {
+                // collector：启动心跳（node_registry），然后走升级决策树。
+                await nodeRegistry.startHeartbeat('collector');
+                if (state.databaseVersion > 0) {
+                    // ── Branch A: 已有版本号的数据库 ──
+                    if (state.databaseVersion < TARGET_DB_VERSION) {
+                        const ok = await upgradeInPlace(
+                            state.databaseVersion,
+                            TARGET_DB_VERSION
+                        );
+                        if (!ok) return;
+                    } else if (state.databaseVersion > TARGET_DB_VERSION) {
+                        console.warn(
+                            `Database version ${state.databaseVersion} is ahead of built-in target ${TARGET_DB_VERSION}. ` +
+                                'Data written by a newer VRCX version may not be fully compatible.'
+                        );
+                    }
+                    // == target: 无事可做
+                } else {
+                    // ── Branch B: version <= 0 / null（版本丢失或全新库）──
+                    const ok = await handleUninitializedDatabase(
                         TARGET_DB_VERSION
                     );
                     if (!ok) return;
-                } else if (state.databaseVersion > TARGET_DB_VERSION) {
-                    console.warn(
-                        `Database version ${state.databaseVersion} is ahead of built-in target ${TARGET_DB_VERSION}. ` +
-                            'Data written by a newer VRCX version may not be fully compatible.'
-                    );
                 }
-                // == target: 无事可做
-            } else {
-                // ── Branch B: version <= 0 / null（版本丢失或全新库）──
-                const ok = await handleUninitializedDatabase(TARGET_DB_VERSION);
-                if (!ok) return;
             }
 
             clearVRCXCacheFrequency.value = await configRepository.getInt(
@@ -1147,6 +1190,7 @@ export const useVrcxStore = defineStore('Vrcx', () => {
 
     return {
         state,
+        isBrowse,
 
         appStartAt,
         databaseUpgradeState,

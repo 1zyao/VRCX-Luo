@@ -72,7 +72,7 @@ export const useUpdateLoopStore = defineStore('UpdateLoop', () => {
      */
     async function updateLoop() {
         try {
-            if (watchState.isLoggedIn) {
+            if (watchState.isLoggedIn && !vrcxStore.isBrowse) {
                 if (--state.nextCurrentUserRefresh <= 0) {
                     state.nextCurrentUserRefresh = 300; // 5min
                     getCurrentUser();

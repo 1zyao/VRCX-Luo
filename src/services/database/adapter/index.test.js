@@ -1,6 +1,12 @@
 import { describe, it, expect, afterEach } from 'vitest';
 
-import { initAdapter, createAdapter, adapter, SQLiteAdapter } from './index.js';
+import {
+    initAdapter,
+    createAdapter,
+    adapter,
+    SQLiteAdapter,
+    downgradeToReadOnly
+} from './index.js';
 
 /**
  * Stage 3 (dynamic import 404 fix): `adapter/index.js` unit tests.
@@ -308,5 +314,23 @@ describe('browse-mode read-only gate (H-1)', () => {
             vi.doUnmock('./PgSQLAdapter.js');
             vi.resetModules();
         }
+    });
+});
+
+describe('downgradeToReadOnly (M2 auto 检测 re-gate)', () => {
+    afterEach(async () => {
+        await initAdapter('sqlite');
+    });
+
+    it('将当前连接降级为只读：adapter 换绑为门禁包装实例', async () => {
+        await initAdapter('sqlite');
+
+        const raw = adapter;
+        const downgraded = await downgradeToReadOnly();
+
+        expect(downgraded).toBe(adapter);
+        expect(downgraded).not.toBe(raw);
+        expect(downgraded.engineType).toBe('sqlite');
+        await expect(downgraded.insert('t', { a: 1 })).resolves.toBe(0);
     });
 });

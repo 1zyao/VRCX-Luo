@@ -434,4 +434,14 @@ async function createAdapter(config) {
     return instance;
 }
 
+/**
+ * 运行中降级为只读（browse 模式）。复用 initAdapter 的 readOnly 门禁：
+ * 以当前 engineType 重新 init，WeakSet 幂等保证不重复包装。
+ * 供 vrcx.js auto 检测到其他活跃 collector 时调用。
+ * @returns {Promise<import('./EngineAdapter.js').EngineAdapter>}
+ */
+export async function downgradeToReadOnly() {
+    return initAdapter(adapter.engineType, { readOnly: true });
+}
+
 export { adapter, SQLiteAdapter, createAdapter };

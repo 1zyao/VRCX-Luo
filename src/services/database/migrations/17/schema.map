@@ -1,0 +1,17 @@
+{
+  "version": 17,
+  "description": "新增 node_registry 节点注册表(browse 模式心跳检测)",
+  "type": "schema",
+  "database": {
+    "before": "",
+    "after": "sqlite"
+  },
+  "dependencies": [],
+  "changes": [
+    {
+      "table": "node_registry",
+      "operation": "execute_sql",
+      "sql": "CREATE TABLE IF NOT EXISTS node_registry (node_id TEXT PRIMARY KEY, mode TEXT NOT NULL, prefixes TEXT NOT NULL, heartbeat_at TEXT NOT NULL)"
+    }
+  ]
+}
