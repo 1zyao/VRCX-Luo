@@ -317,6 +317,8 @@ describe('auth browse-mode login guards (M23)', () => {
         await store.loginComplete();
 
         expect(mocks.database.initUserTables).toHaveBeenCalledWith('usr_me');
-        expect(mocks.nodeRegistry.setOwnPrefixes).toHaveBeenCalledWith(['usr_me']);
+        expect(mocks.nodeRegistry.setOwnPrefixes).toHaveBeenCalledWith([
+            'usr_me'
+        ]);
     });
 });
