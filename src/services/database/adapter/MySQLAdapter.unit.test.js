@@ -490,7 +490,7 @@ describe('CAST 方言映射(_mapMySqlDialect)', () => {
             'SELECT CAST(NULL AS TEXT) AS status, CAST(NULL AS BIGINT) AS time FROM t';
         await adapter.execute(() => {}, sql, {});
         expect(globalThis.MySQL.Execute.mock.calls[0][0]).toBe(
-            'SELECT CAST(NULL AS CHAR) AS status, CAST(NULL AS SIGNED) AS time FROM t'
+            'SELECT CONVERT(CAST(NULL AS CHAR) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS status, CAST(NULL AS SIGNED) AS time FROM t'
         );
     });
 
@@ -498,7 +498,7 @@ describe('CAST 方言映射(_mapMySqlDialect)', () => {
         const sql = 'INSERT INTO t (a) VALUES (CAST(NULL AS TEXT))';
         await adapter.executeNonQuery(sql, {});
         expect(globalThis.MySQL.ExecuteNonQuery.mock.calls[0][0]).toBe(
-            'INSERT INTO t (a) VALUES (CAST(NULL AS CHAR))'
+            'INSERT INTO t (a) VALUES (CONVERT(CAST(NULL AS CHAR) USING utf8mb4) COLLATE utf8mb4_unicode_ci)'
         );
     });
 
@@ -511,7 +511,28 @@ describe('CAST 方言映射(_mapMySqlDialect)', () => {
     test('_mapMySqlDialect 幂等(重复调用无副作用)', () => {
         const once = adapter._mapMySqlDialect('CAST(NULL AS TEXT)');
         const twice = adapter._mapMySqlDialect(once);
-        expect(twice).toBe('CAST(NULL AS CHAR)');
+        expect(twice).toBe(
+            'CONVERT(CAST(NULL AS CHAR) USING utf8mb4) COLLATE utf8mb4_unicode_ci'
+        );
+    });
+
+    test('Feed type 常量强制 utf8mb4_unicode_ci(UNION collation 修复)', async () => {
+        const sql =
+            "SELECT CAST(NULL AS TEXT) AS x, 'GPS' AS type FROM t UNION ALL SELECT CAST(NULL AS TEXT) AS x, 'Status' AS type FROM t UNION ALL SELECT CAST(NULL AS TEXT) AS x, 'Bio' AS type FROM t UNION ALL SELECT CAST(NULL AS TEXT) AS x, 'Avatar' AS type FROM t";
+        await adapter.execute(() => {}, sql, {});
+        const mapped = globalThis.MySQL.Execute.mock.calls[0][0];
+        expect(mapped).toContain(
+            "_utf8mb4'GPS' COLLATE utf8mb4_unicode_ci AS type"
+        );
+        expect(mapped).toContain(
+            "_utf8mb4'Status' COLLATE utf8mb4_unicode_ci AS type"
+        );
+        expect(mapped).toContain(
+            "_utf8mb4'Bio' COLLATE utf8mb4_unicode_ci AS type"
+        );
+        expect(mapped).toContain(
+            "_utf8mb4'Avatar' COLLATE utf8mb4_unicode_ci AS type"
+        );
     });
 });
 

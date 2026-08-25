@@ -231,6 +231,13 @@ export const useAuthStore = defineStore('Auth', () => {
                 AppDebug.endpointDomain = user.loginParams.endpoint;
                 AppDebug.websocketDomain = user.loginParams.websocket;
             }
+            // 浏览模式 (M2 §2.7):用 cookies 恢复既有会话做只读展示。
+            // collector 走 401 → handleAutoLogin → relogin(设 cookies)的链路;
+            // browse 下 relogin 被 guard 早退,若不在 getConfig 前恢复 cookies,
+            // getConfig 401 → handleAutoLogin → relogin 被拦 → 假成功 toast + 无会话。
+            if (vrcxStore.isBrowse && user?.cookies) {
+                await webApiService.setCookies(user.cookies);
+            }
             await applyAutoLoginDelay();
             // login at startup
             loginForm.value.loading = true;

@@ -34,6 +34,9 @@ class MySQLAdapter extends EngineAdapter {
     /** @type {string|null} */
     connectionString = null;
 
+    /** @type {boolean} */
+    changeCounterUnavailable = false;
+
     /** @override */
     get engineType() {
         return 'mysql';
@@ -168,7 +171,27 @@ class MySQLAdapter extends EngineAdapter {
     _mapMySqlDialect(sql) {
         return sql
             .replaceAll('CAST(NULL AS TEXT)', 'CAST(NULL AS CHAR)')
-            .replaceAll('CAST(NULL AS BIGINT)', 'CAST(NULL AS SIGNED)');
+            .replaceAll('CAST(NULL AS BIGINT)', 'CAST(NULL AS SIGNED)')
+            .replace(
+                /CAST\(NULL AS CHAR\)(?! USING utf8mb4)/g,
+                'CONVERT(CAST(NULL AS CHAR) USING utf8mb4) COLLATE utf8mb4_unicode_ci'
+            )
+            .replaceAll(
+                "'GPS' AS type",
+                "_utf8mb4'GPS' COLLATE utf8mb4_unicode_ci AS type"
+            )
+            .replaceAll(
+                "'Status' AS type",
+                "_utf8mb4'Status' COLLATE utf8mb4_unicode_ci AS type"
+            )
+            .replaceAll(
+                "'Bio' AS type",
+                "_utf8mb4'Bio' COLLATE utf8mb4_unicode_ci AS type"
+            )
+            .replaceAll(
+                "'Avatar' AS type",
+                "_utf8mb4'Avatar' COLLATE utf8mb4_unicode_ci AS type"
+            );
     }
 
     /**
@@ -1378,10 +1401,17 @@ class MySQLAdapter extends EngineAdapter {
      * @returns {Promise<number | null>}
      */
     async _readChangeCounter() {
+        if (this.changeCounterUnavailable) return null;
         let version = null;
-        await this.execute((row) => {
-            version = Number(row[0]);
-        }, 'SELECT SUM(COUNT_INSERT + COUNT_UPDATE + COUNT_DELETE) FROM performance_schema.table_io_waits_summary_by_table');
+        try {
+            await this.execute((row) => {
+                version = Number(row[0]);
+            }, 'SELECT SUM(COUNT_INSERT + COUNT_UPDATE + COUNT_DELETE) FROM performance_schema.table_io_waits_summary_by_table');
+        } catch {
+            // performance_schema is optional and may be inaccessible to the app user.
+            this.changeCounterUnavailable = true;
+            return null;
+        }
         return version;
     }
 }

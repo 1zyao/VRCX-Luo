@@ -332,6 +332,61 @@ describe('auth browse-mode login guards (M23)', () => {
         expect(mocks.vrcxStore.waitForDatabaseInit).toHaveBeenCalled();
     });
 
+    test('autoLoginAfterMounted() browse 模式用 cookies 恢复会话（M2 §2.7）', async () => {
+        mocks.isBrowse = true;
+        const user = {
+            id: 'usr_me',
+            displayName: 'Tester',
+            cookies: { auth: 'token' },
+            loginParams: {
+                username: 'tester',
+                password: 'pw',
+                endpoint: '',
+                websocket: ''
+            }
+        };
+        // lastUserLoggedIn → getSavedCredentials(userId) → savedCredentials JSON
+        mocks.configRepository.getString.mockImplementation((key) => {
+            if (key === 'lastUserLoggedIn') return Promise.resolve('usr_me');
+            if (key === 'savedCredentials')
+                return Promise.resolve(JSON.stringify({ usr_me: user }));
+            return Promise.resolve(null);
+        });
+        const store = await createAuthStore();
+
+        await store.autoLoginAfterMounted();
+
+        // browse 下应直接恢复 cookies（relogin 被 guard 早退，无法设会话），
+        // 使 getConfig/getCurrentUser 成功建立只读展示。
+        expect(mocks.webApiService.setCookies).toHaveBeenCalledWith(user.cookies);
+    });
+
+    test('autoLoginAfterMounted() collector 模式不额外恢复 cookies（走原 relogin 链路）', async () => {
+        mocks.isBrowse = false;
+        const user = {
+            id: 'usr_me',
+            displayName: 'Tester',
+            cookies: { auth: 'token' },
+            loginParams: {
+                username: 'tester',
+                password: 'pw',
+                endpoint: '',
+                websocket: ''
+            }
+        };
+        mocks.configRepository.getString.mockImplementation((key) => {
+            if (key === 'lastUserLoggedIn') return Promise.resolve('usr_me');
+            if (key === 'savedCredentials')
+                return Promise.resolve(JSON.stringify({ usr_me: user }));
+            return Promise.resolve(null);
+        });
+        const store = await createAuthStore();
+
+        await store.autoLoginAfterMounted();
+
+        expect(mocks.webApiService.setCookies).not.toHaveBeenCalled();
+    });
+
     test('migrateStoredUsers() 在 browse 模式下仍正常执行（锁定不 guard）', async () => {
         mocks.isBrowse = true;
         mocks.configRepository.getString.mockResolvedValue('{}');
