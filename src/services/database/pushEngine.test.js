@@ -235,6 +235,26 @@ describe('pushEngine — 基本 push', () => {
         expect(rows).toHaveLength(2);
         expect(rows[0]).toEqual(['avt_1', 'Avatar1']);
     });
+
+    test('node_registry 运行期心跳不被复制(bot#23)', async () => {
+        // node_registry 表由 initGlobalSchema 创建;塞入一条心跳行(模拟活跃 collector)。
+        await srcAdapter.initGlobalSchema();
+        await srcAdapter.insert('node_registry', {
+            node_id: 'node-test',
+            mode: 'collector',
+            prefixes: 'usr_a',
+            heartbeat_at: new Date().toISOString()
+        });
+        const result = await pushFromSqlite('sqlite:///fake/src.db');
+
+        // globalTables 计数不受影响(19 张分类一致)。
+        expect(result.globalTables).toBe(19);
+        // rowsCopied 仍为 cache_avatar 2(seedSrc 的 abc_notes 2 = 4;此处无 seed)。
+        expect(result.rowsCopied).toBe(0);
+        expect(result.errors).toEqual([]);
+        // 目标库 node_registry 表存在但无心跳行(表结构由 initGlobalSchema 自建)。
+        expect(await dstCount('node_registry')).toBe(0);
+    });
 });
 
 // ─────────────────────────────────────────────────────────────────────────

@@ -396,6 +396,7 @@ describe('vrcx 启动：collector 分支决策树（改动前行为回归）', (
         expect(mocks.nodeRegistryMock.startHeartbeat).toHaveBeenCalledWith(
             'collector'
         );
+        expect(mocks.databaseMock.initTables).toHaveBeenCalled();
         expect(mocks.databaseMock.runMigrations).toHaveBeenCalledWith(
             10,
             TARGET_DB_VERSION,

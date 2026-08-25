@@ -206,7 +206,18 @@ export const useVrcxStore = defineStore('Vrcx', () => {
                 const detected = await nodeRegistry.detectActiveCollectors();
                 state.detectedNodeIds = detected.map((d) => d.nodeId);
                 if (detected.length > 0) {
-                    await downgradeToReadOnly();
+                    try {
+                        await downgradeToReadOnly();
+                    } catch (err) {
+                        // re-gate 失败 fail-fast（M2 §2.1）：不静默继续——
+                        // 门禁未生效时按 browse 运行会双写，按 collector 运行会双写，
+                        // 只能中止启动，让错误可观测。
+                        console.error(
+                            '[browse] 降级只读失败，中止启动（fail-fast）：',
+                            err instanceof Error ? err.message : String(err)
+                        );
+                        throw err;
+                    }
                     effectiveMode = 'browse';
                     browseSource = 'auto-detected';
                 }
@@ -383,6 +394,7 @@ export const useVrcxStore = defineStore('Vrcx', () => {
         databaseUpgradeState.value.toVersion = targetVersion;
         console.log(`升级数据库从 ${fromVersion} 到 ${targetVersion}...`);
         try {
+            await database.initTables();
             await runFixes(targetVersion);
             await configRepository.setInt(
                 'VRCX_databaseVersion',

@@ -160,6 +160,7 @@
 
 <script setup>
     import { computed, h, onMounted, ref, watch } from 'vue';
+    import { toast } from 'vue-sonner';
 
     import { storeToRefs } from 'pinia';
     import { Plus } from 'lucide-vue-next';
@@ -318,6 +319,7 @@
 
     const handleSettingsClick = () => {
         if (vrcxStore.isBrowse) {
+            toast.warning(t('browse_mode.tool_disabled'));
             return;
         }
         router.push({ name: 'settings' });

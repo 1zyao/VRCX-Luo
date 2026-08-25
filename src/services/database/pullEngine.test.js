@@ -220,6 +220,24 @@ describe('pullEngine — 基本 pull', () => {
         const rows = await dstAdapter.select('cache_avatar', ['id', 'name']);
         expect(rows[0]).toEqual(['avt_1', 'Avatar1']);
     });
+
+    test('node_registry 运行期心跳不被复制(bot#23)', async () => {
+        // node_registry 表由 src initGlobalSchema 创建;塞入心跳行(活跃 collector)。
+        await srcAdapter.initGlobalSchema();
+        await srcAdapter.insert('node_registry', {
+            node_id: 'node-test',
+            mode: 'collector',
+            prefixes: 'usr_a',
+            heartbeat_at: new Date().toISOString()
+        });
+        const result = await pullToSqlite('sqlite:///fake/dst.db');
+
+        // 分类计数不受影响(global 19 张)。
+        expect(result.globalTables).toBe(19);
+        expect(result.errors).toEqual([]);
+        // 目标 node_registry 表存在(dst initGlobalSchema 自建)但无心跳行。
+        expect(await dstCount('node_registry')).toBe(0);
+    });
 });
 
 // ─────────────────────────────────────────────────────────────────────────

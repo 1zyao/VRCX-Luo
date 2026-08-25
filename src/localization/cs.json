@@ -1759,7 +1759,9 @@
         "badge": "Read-only",
         "banner_text": "Another VRCX instance is using this database. Browse mode (read-only) enabled. If that instance stops its heartbeat, restart this one in about 2 minutes to restore write access; manual restore will come in a future version.",
         "login_disabled_tooltip": "Browse mode (read-only) cannot log in new accounts",
-        "tool_disabled": "Browse mode (read-only) cannot perform this action"
+        "tool_disabled": "Browse mode (read-only) cannot perform this action",
+        "banner_text_detected": "Detected {count} active collector node(s), browse mode (read-only) enabled. Restart in about 2 minutes after collectors stop heartbeating to restore write access.",
+        "banner_text_explicit": "This instance started in browse mode (read-only): you can view data but cannot log in or write. Restart in collector mode to collect; restart this one in about 2 minutes after the other instance stops its heartbeat to restore write access."
     },
     "status_bar": {
         "browse_tooltip_auto": "Read-only: another VRCX instance is actively collecting (auto-detected)",

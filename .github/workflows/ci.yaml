@@ -39,7 +39,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
       - name: Build C# (dotnet build)
@@ -125,7 +125,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
       - name: Check C# formatting
@@ -170,6 +170,8 @@ jobs:
           dotnet-version: '10.0.x'
       - name: Dotnet read-only rejection tests (MySQL)
         run: dotnet test Dotnet/VRCX.Tests --filter "Category=ReadOnlyRejection"
+      - name: Dotnet browse-mode unit tests (MySQL)
+        run: dotnet test Dotnet/VRCX.Tests --filter "Category=BrowseMode"
 
   # Phase 9 slice S12 (task 9.15): PostgreSQL 16/17 integration test matrix.
   # Uses ikalnytskyi/action-setup-postgres to provision PG on the runner
@@ -229,3 +231,6 @@ jobs:
           PG_TEST_USER: vrcx
           PG_TEST_PASSWORD: vrcx
           PG_TEST_DB: vrcx
+          PG_TEST_VERSION: ${{ matrix.pg.version }}
+      - name: Dotnet browse-mode unit tests (PgSQL)
+        run: dotnet test Dotnet/VRCX.Tests --filter "Category=BrowseMode"

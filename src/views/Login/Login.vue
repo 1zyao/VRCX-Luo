@@ -111,8 +111,6 @@
                         variant="Secondary"
                         size="lg"
                         style="width: 100%"
-                        :disabled="vrcxStore.isBrowse"
-                        :title="vrcxStore.isBrowse ? t('browse_mode.login_disabled_tooltip') : undefined"
                         @click="openExternalLink('https://vrchat.com/register')"
                         >{{ t('view.login.register') }}</Button
                     >
@@ -130,6 +128,8 @@
                                 v-for="user in savedCredentials"
                                 :key="user.user.id"
                                 class="cursor-pointer hover:bg-muted p-2 border-0"
+                                :class="vrcxStore.isBrowse ? 'opacity-60 cursor-not-allowed hover:bg-transparent' : ''"
+                                :title="vrcxStore.isBrowse ? t('browse_mode.login_disabled_tooltip') : undefined"
                                 @click="clickSavedLogin(user)">
                                 <ItemMedia @click.stop>
                                     <div class="flex items-center cursor-pointer" @click.stop>

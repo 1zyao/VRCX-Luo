@@ -3,8 +3,10 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 const { adapter, timers } = vi.hoisted(() => {
     const timers = {
         intervalCb: null,
-        setInterval: vi.fn((cb) => {
+        intervalDelay: null,
+        setInterval: vi.fn((cb, delay) => {
             timers.intervalCb = cb;
+            timers.intervalDelay = delay;
             return 1;
         }),
         clearInterval: vi.fn(() => {
@@ -56,6 +58,8 @@ describe('nodeRegistry', () => {
 
             expect(adapter.upsertPartial).toHaveBeenCalledTimes(2);
             expect(timers.setInterval).toHaveBeenCalledTimes(1);
+            // 心跳周期锁死 30s（M2 §2.5，workerTimers.setInterval(30_000)）
+            expect(timers.intervalDelay).toBe(30000);
             const [table, insertData, updateData, conflictColumn] =
                 adapter.upsertPartial.mock.calls[1];
             expect(table).toBe('node_registry');

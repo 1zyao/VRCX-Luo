@@ -7,6 +7,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Reflection;
+using NLog;
 using Npgsql;
 
 namespace VRCX
@@ -242,6 +243,7 @@ namespace VRCX
         private NpgsqlDataSource _dataSource;
         private readonly ReaderWriterLockSlim _connectionLock;
         private bool _initialized;
+        private static readonly Logger logger = LogManager.GetCurrentClassLogger();
         private DateTime _lastHealthCheck;
         private readonly TimeSpan _healthCheckInterval = TimeSpan.FromSeconds(30);
 
@@ -483,6 +485,7 @@ namespace VRCX
             _dataSource = builder.Build();
             _maxPoolSize = 16; // 连接字符串硬编码 Maximum Pool Size=16
             _initialized = true;
+            logger.Info("PostgreSQL: node mode={0} readOnly={1}", nodeMode, isReadOnly);
         }
 
         /// <summary>

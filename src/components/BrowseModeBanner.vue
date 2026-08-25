@@ -2,11 +2,20 @@
     <Alert v-if="vrcxStore.isBrowse" variant="warning" class="mx-3 mt-3 shrink-0">
         <EyeOff class="size-4" />
         <AlertTitle class="truncate">{{ t('browse_mode.badge') }}</AlertTitle>
-        <AlertDescription class="text-xs!">{{ t('browse_mode.banner_text') }}</AlertDescription>
+        <AlertDescription class="text-xs!">
+            {{
+                vrcxStore.browseSource === 'auto-detected' && detectedCount > 0
+                    ? t('browse_mode.banner_text_detected', { count: detectedCount })
+                    : vrcxStore.browseSource === 'explicit'
+                      ? t('browse_mode.banner_text_explicit')
+                      : t('browse_mode.banner_text')
+            }}
+        </AlertDescription>
     </Alert>
 </template>
 
 <script setup>
+    import { computed } from 'vue';
     import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
     import { EyeOff } from 'lucide-vue-next';
     import { useI18n } from 'vue-i18n';
@@ -15,4 +24,8 @@
 
     const vrcxStore = useVrcxStore();
     const { t } = useI18n();
+
+    const detectedCount = computed(
+        () => (vrcxStore.detectedNodeIds ?? []).length
+    );
 </script>

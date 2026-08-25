@@ -284,6 +284,11 @@ export async function pushFromSqlite(
         await dst.withTransaction(async () => {
             for (const tableName of GLOBAL_TABLES) {
                 globalIdx += 1;
+                // 运行期协调表:心跳快照会污染目标库 TTL 判定 (bot#23)。
+                // node_registry 随库迁移复制会留下非实时心跳,目标实例误判
+                // 活跃 collector 而进入 browse。行数据不迁移,表结构由目标引擎
+                // initGlobalSchema 自建。计数 globalTables 仍 +1 (分类一致)。
+                const skipCopy = tableName === 'node_registry';
                 if (typeof onProgress === 'function') {
                     onProgress({
                         phase: 'global',
@@ -292,6 +297,11 @@ export async function pushFromSqlite(
                         total: globalTotal,
                         rowsCopied
                     });
+                }
+                if (skipCopy) {
+                    rowsCopied += 0;
+                    globalTables += 1;
+                    continue;
                 }
                 const copied = await copyTable(
                     srcAdapter,

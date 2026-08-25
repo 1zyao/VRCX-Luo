@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { createI18n } from 'vue-i18n';
 import { createTestingPinia } from '@pinia/testing';
 import { mount } from '@vue/test-utils';
-import { ref } from 'vue';
+import { nextTick, ref } from 'vue';
 
 vi.mock('../../../views/Feed/Feed.vue', () => ({
     default: { template: '<div />' }
@@ -89,8 +89,8 @@ vi.mock('vee-validate', () => ({
 vi.mock('@vee-validate/zod', () => ({ toTypedSchema: vi.fn((s) => s) }));
 
 import Login from '../Login.vue';
+import { useVrcxStore } from '../../../stores';
 import en from '../../../localization/en.json';
-
 const i18n = createI18n({
     locale: 'en',
     fallbackLocale: 'en',
@@ -119,8 +119,8 @@ const stubs = {
     },
     Button: {
         template:
-            '<button :type="type || \'button\'" :id="id"><slot /></button>',
-        props: ['type', 'variant', 'size', 'id']
+            '<button :type="type || \'button\'" :id="id" :disabled="disabled"><slot /></button>',
+        props: ['type', 'variant', 'size', 'id', 'disabled']
     },
     Checkbox: { template: '<input type="checkbox" />', props: ['modelValue'] },
     Field: { template: '<div><slot /></div>' },
@@ -229,6 +229,19 @@ describe('Login.vue', () => {
             const wrapper = mountLogin();
             const legalNotice = wrapper.find('.x-legal-notice-container');
             expect(legalNotice.exists()).toBe(true);
+        });
+    });
+
+    describe('browse mode', () => {
+        test('disables login submit button when in browse (read-only) mode', async () => {
+            const wrapper = mountLogin();
+            const vrcxStore = useVrcxStore();
+            vrcxStore.state.effectiveNodeMode = 'browse';
+            await nextTick();
+
+            const submitBtn = wrapper.find('#login-form button[type="submit"]');
+            expect(submitBtn.exists()).toBe(true);
+            expect(submitBtn.attributes('disabled')).toBeDefined();
         });
     });
 

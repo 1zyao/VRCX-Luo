@@ -3184,6 +3184,8 @@
         "badge": "Read-only",
         "banner_text": "Another VRCX instance is using this database. Browse mode (read-only) enabled. If that instance stops its heartbeat, restart this one in about 2 minutes to restore write access; manual restore will come in a future version.",
         "login_disabled_tooltip": "Browse mode (read-only) cannot log in new accounts",
-        "tool_disabled": "Browse mode (read-only) cannot perform this action"
+        "tool_disabled": "Browse mode (read-only) cannot perform this action",
+        "banner_text_detected": "偵測到 {count} 個活躍採集節點，已進入瀏覽模式（唯讀）。採集節點停止心跳約 2 分鐘後重新啟動，將恢復寫入。",
+        "banner_text_explicit": "目前執行個體以瀏覽模式（唯讀）啟動：可查看資料但不可登入或寫入。如需採集，請以 collector 模式重新啟動；對方停止心跳約 2 分鐘後重新啟動，將恢復寫入。"
     }
 }

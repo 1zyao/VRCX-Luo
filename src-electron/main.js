@@ -205,14 +205,10 @@ function createOverlayWindowShm() {
     // collector 模式启动完成初始化。
     if (String(e && e.message).includes('浏览模式：数据库文件不存在')) {
         try {
-            dialog.showMessageBoxSync({
-                type: 'warning',
-                title: '浏览模式（只读）',
-                message: '浏览模式：数据库文件不存在',
-                detail:
-                    '请先以 collector 模式启动一次完成初始化，或检查 VRCX_Database.name 配置。',
-                buttons: ['OK']
-            });
+            dialog.showErrorBox(
+                '浏览模式（只读）',
+                '浏览模式：数据库文件不存在\n请先以 collector 模式启动一次完成初始化，或检查 VRCX_Database.name 配置。'
+            );
         } catch (_) {
             // 对话框失败不阻塞退出流程
         }

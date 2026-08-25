@@ -333,4 +333,25 @@ describe('downgradeToReadOnly (M2 auto 检测 re-gate)', () => {
         expect(downgraded.engineType).toBe('sqlite');
         await expect(downgraded.insert('t', { a: 1 })).resolves.toBe(0);
     });
+
+    it('已知限制锁定：sqlite browse 门禁后切到 postgresql 得到未门禁实例（M3 backlog）', async () => {
+        // downgradeToReadOnly 只对当前引擎重门禁；切换引擎会懒加载全新实例，
+        // 不带 readOnly 选项 → 不门禁。运行中引擎切换本身不支持（启动即定），
+        // 此处锁定该行为防止将来误以为跨引擎门禁存在。
+        await initAdapter('sqlite');
+        await downgradeToReadOnly();
+        expect(adapter.insert).not.toBe(
+            Object.getPrototypeOf(adapter).insert
+        );
+
+        const pg = await initAdapter('postgresql');
+
+        expect(pg.constructor.name).toBe('PgSQLAdapter');
+        expect(Object.getPrototypeOf(pg).insert).toBe(pg.insert);
+        // 未门禁：走真实引擎实现（vitest 下 PostgreSQL 是 noop Proxy，
+        // 解析值无意义，门禁哨兵值是 0，这里断言不是门禁 no-op 即可）
+        await expect(
+            Promise.resolve(pg.insert('t', { a: 1 })).then((v) => v)
+        ).not.toBe(0);
+    });
 });

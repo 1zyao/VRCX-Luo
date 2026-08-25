@@ -2,7 +2,8 @@
 // 文件名: PostgreSqlBrowseModeTests.cs
 // 用途: PostgreSQL 引擎浏览模式 (VRCX_NodeMode=browse) 连接层只读回归测试
 //   ① 连接串断言: browse 追加 ;Options=-c default_transaction_read_only=on;
-//   ② collector 连接串逐字符基线回归 (M1 验收硬线);
+//   ② collector 连接串无只读片段回归 (M1 验收硬线;Npgsql 再序列化连接串,
+//      逐字符基线不可行,按关键标记断言);
 //   ③ env-gated 真库只读拒绝 [Category=ReadOnlyRejection] (PG_TEST_HOST 未设则 Skip)。
 // 依赖策略 (同 PostgreSqlBridgeTests.cs): Link PostgreSQL.cs 编译进 VRCX.Tests.dll,
 //   同 assembly internal 直接可见; VRCXStorage stub 控制 VRCX_NodeMode / VRCX_Database.*。
@@ -81,13 +82,48 @@ public class PostgreSqlBrowseModeTests : IDisposable
     }
 
     [Fact]
+    [Trait("Category", "BrowseMode")]
+    public void BrowseAndCollector_ConnectionStrings_Differ_InCacheKey()
+    {
+        // 只读/可写缓存共存 (M2 §5.2 / review #16):ExecuteJsonOnConnection 的
+        // DataSourceCache 以连接串为键 (PostgreSQL.cs GetOrAdd(connectionString,...)),
+        // browse 追加 Options 片段 → 与 collector 键不同 → 两条目天然共存,
+        // 不会出现"collector 缓存的可写连接被 browse 复用"破坏只读兜底。
+        // 静态字段反射:键类型为 string,值类型为 NpgsqlDataSource,证明按串隔离。
+        var cacheField = typeof(PostgreSQL).GetField("DataSourceCache",
+            BindingFlags.NonPublic | BindingFlags.Static)
+            ?? throw new InvalidOperationException("PostgreSQL.DataSourceCache 静态字段不存在 — 生产字段漂移");
+        var cacheType = cacheField.FieldType;
+        cacheType.IsGenericType.Should().BeTrue();
+        cacheType.GetGenericArguments()[0].Should().Be(typeof(string));
+
+        Configure("browse");
+        var browsePg = new PostgreSQL();
+        browsePg.Init();
+        var browseCs = GetConnectionString(browsePg);
+
+        Configure("auto");
+        var collectorPg = new PostgreSQL();
+        collectorPg.Init();
+        var collectorCs = GetConnectionString(collectorPg);
+
+        browseCs.Should().NotBe(collectorCs);
+        browseCs.Should().Contain("default_transaction_read_only=on");
+        collectorCs.Should().NotContain("read_only");
+    }
+
+    [Fact]
     [Trait("Category", "ReadOnlyRejection")]
     public void ExecuteNonQuery_BrowseMode_RealDb_ThrowsReadOnly()
     {
         var host = Environment.GetEnvironmentVariable("PG_TEST_HOST");
         if (string.IsNullOrWhiteSpace(host))
         {
-            // 本地/无 env 时跳过;CI (M26 test_pgsql job 自带 PG_TEST_* env) 才真正执行。
+            // 本地/无 env 时跳过,但打印原因避免"静默全绿掩盖真库用例从未执行"(review #18)。
+            // 说明:本 runner 组合 (SDK 17.11.1 / xunit.runner.visualstudio 2.8.2) 不解释
+            // $XunitDynamicSkip$ 动态跳过标记 (会显示 FAIL),故用 return+显式输出而非
+            // SkipException.ForSkip。CI (M26 test_pgsql job 自带 PG_TEST_* env) 才真正执行。
+            Console.WriteLine("[SKIP] PG_TEST_HOST 未设置,跳过真库只读拒绝验证 (CI 注入后生效)");
             return;
         }
         var port = Environment.GetEnvironmentVariable("PG_TEST_PORT") ?? "5432";

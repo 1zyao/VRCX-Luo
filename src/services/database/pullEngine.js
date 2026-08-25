@@ -354,6 +354,10 @@ export async function pullToSqlite(dstConnStr, options = {}) {
             for (const { tableName, columns } of globalSchema) {
                 globalIdx += 1;
                 const dstTable = stripSchemaPrefix(tableName);
+                // 运行期协调表:心跳快照不随库迁移 (bot#23)。复制非实时心跳会
+                // 让目标实例 TTL 误判活跃 collector 而进入 browse。表结构已由
+                // initGlobalSchema 自建,只跳过行数据复制。计数 globalTables 仍 +1。
+                const skipCopy = dstTable === 'node_registry';
                 if (typeof onProgress === 'function') {
                     onProgress({
                         phase: 'global',
@@ -362,6 +366,10 @@ export async function pullToSqlite(dstConnStr, options = {}) {
                         total: globalTotal,
                         rowsCopied
                     });
+                }
+                if (skipCopy) {
+                    globalTables += 1;
+                    continue;
                 }
                 const copied = await copyTable(
                     src,

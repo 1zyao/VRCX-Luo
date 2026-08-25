@@ -321,4 +321,27 @@ describe('auth browse-mode login guards (M23)', () => {
             'usr_me'
         ]);
     });
+
+    test('autoLoginAfterMounted() 在 browse 模式下仍正常执行（锁定不 guard）', async () => {
+        mocks.isBrowse = true;
+        mocks.configRepository.getString.mockResolvedValue(null);
+        const store = await createAuthStore();
+
+        await store.autoLoginAfterMounted();
+
+        expect(mocks.vrcxStore.waitForDatabaseInit).toHaveBeenCalled();
+    });
+
+    test('migrateStoredUsers() 在 browse 模式下仍正常执行（锁定不 guard）', async () => {
+        mocks.isBrowse = true;
+        mocks.configRepository.getString.mockResolvedValue('{}');
+        const store = await createAuthStore();
+
+        await store.migrateStoredUsers();
+
+        expect(mocks.configRepository.setString).toHaveBeenCalledWith(
+            'savedCredentials',
+            '{}'
+        );
+    });
 });

@@ -73,6 +73,15 @@ namespace VRCX
 
         private MySqlDataSource _dataSource;
         private bool _initialized;
+        private bool _browseReadOnlyConfigured;
+
+        /// <summary>
+        /// 测试钩子:浏览模式(browse)下是否注册了连接打开只读回调。
+        /// 连接串断言无法区分"回调已注册"与"未注册"(只读在会话层,不体现在串上),
+        /// 若误删外层 if 变成恒注册,collector 也会被 SET SESSION READ ONLY,
+        /// 此标志可被单元测试直接校验(M2 §5.2 / review #15)。
+        /// </summary>
+        internal bool IsBrowseReadOnlyConfigured => _browseReadOnlyConfigured;
 
         private static readonly Logger logger = LogManager.GetCurrentClassLogger();
 
@@ -290,6 +299,7 @@ namespace VRCX
             // (验收硬线:连接串仅由 builder 决定,不追加只读片段)。
             var nodeMode = NodeMode.Normalize(VRCXStorage.Instance.Get("VRCX_NodeMode"));
             var isReadOnly = nodeMode == "browse";
+            _browseReadOnlyConfigured = isReadOnly;
             if (isReadOnly)
             {
                 var dataSourceBuilder = new MySqlDataSourceBuilder(builder.ConnectionString);
