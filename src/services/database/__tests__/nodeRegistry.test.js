@@ -98,6 +98,36 @@ describe('nodeRegistry', () => {
             await tick();
             expect(adapter.upsertPartial).toHaveBeenCalledTimes(1);
         });
+
+        test('startHeartbeat with claimDb writes placeholder beat to raw instance (M3 先登记后开写)', async () => {
+            const claimDb = {
+                upsertPartial: vi.fn().mockResolvedValue(1),
+                select: vi.fn().mockResolvedValue([]),
+                delete: vi.fn().mockResolvedValue(1)
+            };
+            await nodeRegistry.startHeartbeat('collector', claimDb);
+
+            // 占位拍走 claimDb（原始可写实例），不换绑 live binding
+            expect(claimDb.upsertPartial).toHaveBeenCalledTimes(1);
+            expect(claimDb.upsertPartial.mock.calls[0][0]).toBe('node_registry');
+            expect(adapter.upsertPartial).toHaveBeenCalledTimes(0);
+            // 定时拍仍走 live adapter
+            await tick();
+            expect(adapter.upsertPartial).toHaveBeenCalledTimes(1);
+        });
+
+        test('startHeartbeat with claimDb propagates placeholder failure (M4 回滚依据)', async () => {
+            const claimDb = {
+                upsertPartial: vi.fn().mockRejectedValue(new Error('connection refused')),
+                select: vi.fn(),
+                delete: vi.fn()
+            };
+            await expect(nodeRegistry.startHeartbeat('collector', claimDb)).rejects.toThrow(
+                'connection refused'
+            );
+            // 失败后不启动定时心跳
+            expect(timers.setInterval).not.toHaveBeenCalled();
+        });
     });
 
     describe('detectActiveCollectors', () => {

@@ -6,6 +6,7 @@ import {
     adapter,
     SQLiteAdapter,
     downgradeToReadOnly,
+    getWritableAdapter,
     upgradeToWritable
 } from './index.js';
 
@@ -390,5 +391,25 @@ describe('upgradeToWritable (M3 auto 接管 re-gate)', () => {
 
         expect(reDowngraded).not.toBe(raw);
         await expect(reDowngraded.insert('t', { a: 1 })).resolves.toBe(0);
+    });
+
+    it('getWritableAdapter：取回底层可写实例但不换绑 live binding（M3 先登记后开写）', async () => {
+        upgradeToWritable();
+        await initAdapter('sqlite');
+
+        const raw = adapter;
+        await downgradeToReadOnly();
+        expect(adapter).not.toBe(raw);
+
+        // 不换绑 adapter，也不清除门禁登记
+        const writable = getWritableAdapter();
+
+        expect(writable).toBe(raw);
+        expect(adapter).not.toBe(raw);
+        // 门禁态：adapter.insert 是包装的 no-op，而非原始实现
+        expect(adapter.insert).not.toBe(raw.insert);
+        await expect(adapter.insert('t', { a: 1 })).resolves.toBe(0);
+        // 原始实例方法即真实实现（非门禁 no-op）
+        expect(writable.insert).toBe(raw.insert);
     });
 });

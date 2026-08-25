@@ -54,6 +54,7 @@ const mocks = vi.hoisted(() => ({
     },
     downgradeToReadOnly: vi.fn(async () => undefined),
     upgradeToWritable: vi.fn(() => undefined),
+    getWritableAdapter: vi.fn(() => mocks.adapterMock),
     timers: {
         setInterval: vi.fn(),
         clearInterval: vi.fn()
@@ -66,7 +67,8 @@ vi.mock('../../services/database/adapter/index.js', () => ({
     adapter: mocks.adapterMock,
     createAdapter: vi.fn(),
     downgradeToReadOnly: mocks.downgradeToReadOnly,
-    upgradeToWritable: mocks.upgradeToWritable
+    upgradeToWritable: mocks.upgradeToWritable,
+    getWritableAdapter: mocks.getWritableAdapter
 }));
 vi.mock('../../services/database', () => ({ database: mocks.databaseMock }));
 vi.mock('../../services/database/nodeRegistry.js', () => ({
@@ -522,7 +524,7 @@ describe('vrcx 运行中自动接管（M3）', () => {
         expect(mocks.nodeRegistryMock.startHeartbeat).not.toHaveBeenCalled();
     });
 
-    test('接管扫描：无活跃 collector → 升级为 collector 恢复写入', async () => {
+    test('接管扫描：无活跃 collector → 先登记后开写升级为 collector 恢复写入', async () => {
         vrcxStorageMock = installVrcxStorage('auto');
         // 首次检测有 collector → 降级 browse；随后扫描时无 collector
         mocks.nodeRegistryMock.detectActiveCollectors
@@ -543,15 +545,55 @@ describe('vrcx 运行中自动接管（M3）', () => {
 
         await store.scanForTakeover();
 
+        // 先登记后开写：占位心跳经 getWritableAdapter() 的原始实例，
+        // 成功后才 upgradeToWritable() 换绑 live binding。
+        expect(mocks.getWritableAdapter).toHaveBeenCalled();
+        expect(mocks.nodeRegistryMock.startHeartbeat).toHaveBeenCalledWith(
+            'collector',
+            mocks.adapterMock
+        );
         expect(mocks.upgradeToWritable).toHaveBeenCalled();
         expect(store.state.effectiveNodeMode).toBe('collector');
         expect(store.state.browseSource).toBeNull();
         expect(store.state.detectedNodeIds).toEqual([]);
-        expect(mocks.nodeRegistryMock.startHeartbeat).toHaveBeenCalledWith(
-            'collector'
-        );
         expect(logSpy).toHaveBeenCalledWith(
             '[browse] 未检测到活跃 collector，自动接管为 collector（恢复写入）'
+        );
+    });
+
+    test('接管扫描：占位心跳登记失败（M4）→ 回滚保留浏览模式并恢复扫描', async () => {
+        vrcxStorageMock = installVrcxStorage('auto');
+        mocks.nodeRegistryMock.detectActiveCollectors.mockResolvedValue([
+            {
+                nodeId: 'node-other',
+                mode: 'collector',
+                prefixes: 'usr_a',
+                heartbeatAt: new Date().toISOString()
+            }
+        ]);
+        mocks.timers.setInterval.mockImplementation(() => 42);
+
+        const store = useVrcxStore();
+        await store.waitForDatabaseInit();
+        expect(store.state.effectiveNodeMode).toBe('browse');
+
+        // 扫描时无活跃 collector → 进入接管，但占位心跳失败
+        mocks.nodeRegistryMock.detectActiveCollectors.mockResolvedValueOnce([]);
+        mocks.nodeRegistryMock.startHeartbeat.mockRejectedValueOnce(
+            new Error('connection refused')
+        );
+        await store.scanForTakeover();
+
+        expect(mocks.upgradeToWritable).not.toHaveBeenCalled();
+        expect(store.state.effectiveNodeMode).toBe('browse');
+        expect(warnSpy).toHaveBeenCalledWith(
+            '[browse] 接管失败（心跳登记失败），保留浏览模式:',
+            expect.any(Error)
+        );
+        // 恢复扫描重试
+        expect(mocks.timers.setInterval).toHaveBeenCalledWith(
+            expect.any(Function),
+            60_000
         );
     });
 

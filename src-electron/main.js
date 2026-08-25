@@ -1228,11 +1228,24 @@ function disposeOverlay() {
     }
 }
 
+let quitGraceArmed = true;
 app.on('before-quit', function () {
     // Mark it as a quitting state to make macOS Dock's "Quit" action take effect.
     appIsQuitting = true;
     disposeOverlay();
     destroyTray();
+
+    // M3 B2（RainyN 评审）：优雅退出前给渲染进程 ≤1s 兜底窗口，让
+    // beforeunload 里 nodeRegistry.removeOwnRow() 的异步 IPC delete 送达 C#
+    // 层。窗口销毁即退出时 delete 可能未送达，残留行由 TTL 120s 兜底
+    // （R-14，方向安全），此处尽力缩短误判窗口。quitGraceArmed 防止
+    // setTimeout 里的 app.quit() 再次触发本处理器造成循环。
+    if (quitGraceArmed) {
+        quitGraceArmed = false;
+        setTimeout(function () {
+            app.quit();
+        }, 1000);
+    }
 });
 
 app.on('window-all-closed', function () {

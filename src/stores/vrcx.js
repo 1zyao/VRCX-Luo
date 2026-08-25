@@ -48,7 +48,8 @@ import {
     adapter,
     createAdapter,
     downgradeToReadOnly,
-    upgradeToWritable
+    upgradeToWritable,
+    getWritableAdapter
 } from '../services/database/adapter/index.js';
 import { normalizeNodeMode } from '../services/database/adapter/readOnlyGate.js';
 import { nodeRegistry } from '../services/database/nodeRegistry.js';
@@ -121,11 +122,27 @@ export const useVrcxStore = defineStore('Vrcx', () => {
             '[browse] 未检测到活跃 collector，自动接管为 collector（恢复写入）'
         );
         stopTakeoverScan();
+
+        // M3 先登记后开写（kipfel-bot CHANGES_REQUESTED）：占位心跳走原始可写
+        // 实例（不换绑 live binding），成功后 upgradeToWritable() 才解绑门禁。
+        // 否则 upgradeToWritable → await startHeartbeat 之间的窗口期本节点
+        // 可写但未登记心跳，另一 browse 节点同时判定 → 双写。
+        const claimDb = getWritableAdapter();
+        try {
+            await nodeRegistry.startHeartbeat('collector', claimDb);
+        } catch (error) {
+            // M4：占位登记失败 → 保持 browse（未解绑门禁）+ 恢复扫描重试。
+            console.warn(
+                '[browse] 接管失败（心跳登记失败），保留浏览模式:',
+                error
+            );
+            startTakeoverScan();
+            return;
+        }
         upgradeToWritable();
         state.effectiveNodeMode = 'collector';
         state.browseSource = null;
         state.detectedNodeIds = [];
-        await nodeRegistry.startHeartbeat('collector');
     }
 
     function startTakeoverScan() {

@@ -33,13 +33,18 @@ function generateNodeId() {
 }
 
 /**
- * 心跳 upsert：单语句原子，不参与业务事务，失败静默下一拍重试。
+ * 心跳 upsert：单语句原子，不参与业务事务。
+ * @param {import('./adapter/EngineAdapter.js').EngineAdapter} [db]
+ *   M3 先登记后开写：接管时传入 getWritableAdapter() 的原始可写实例写占位行；
+ *   缺省用 live `adapter` 绑定（升级后即指向可写实例）。
+ * @param {{ throwOnError?: boolean }} [options] throwOnError 仅 M3 占位拍
+ *   使用（失败上抛让调用方回滚）；定时拍缺省静默下一拍重试。
  */
-async function beat() {
+async function beat(db = adapter, { throwOnError = false } = {}) {
     if (!ownNodeId) return;
     const heartbeatAt = new Date().toISOString();
     try {
-        await adapter.upsertPartial(
+        await db.upsertPartial(
             'node_registry',
             {
                 node_id: ownNodeId,
@@ -56,17 +61,15 @@ async function beat() {
         );
     } catch (error) {
         console.error('[nodeRegistry] heartbeat failed', error);
+        if (throwOnError) throw error;
     }
 
     const cutoff = new Date(Date.now() - COLLECTOR_TTL_MS).toISOString();
     try {
-        const rows = await adapter.select('node_registry', [
-            'node_id',
-            'heartbeat_at'
-        ]);
+        const rows = await db.select('node_registry', ['node_id', 'heartbeat_at']);
         for (const [nodeId, heartbeatAtRow] of rows) {
             if (heartbeatAtRow < cutoff) {
-                await adapter
+                await db
                     .delete('node_registry', { node_id: nodeId })
                     .catch(() => {});
             }
@@ -152,12 +155,18 @@ export const nodeRegistry = {
     /**
      * 启动节点心跳。
      * @param {'collector'|'browse'} mode
+     * @param {import('./adapter/EngineAdapter.js').EngineAdapter} [claimDb]
+     *   M3 先登记后开写：接管场景传入 getWritableAdapter() 的原始可写实例，
+     *   首拍占位写走该实例；**占位失败会上抛**（调用方据此回滚，
+     *   避免进入"可写但未登记心跳"的双写窗口）。定时拍继续用 live
+     *   `adapter` 绑定（升级换绑后即指向可写实例）。缺省走 live 绑定，
+     *   行为与改动前一致。
      */
-    async startHeartbeat(mode) {
+    async startHeartbeat(mode, claimDb) {
         stopHeartbeat();
         ownNodeId = generateNodeId();
         ownMode = mode;
-        await beat();
+        await beat(claimDb, { throwOnError: true });
         heartbeatTimer = workerTimers.setInterval(beat, HEARTBEAT_INTERVAL_MS);
     },
 

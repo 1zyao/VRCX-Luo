@@ -465,4 +465,14 @@ export function upgradeToWritable() {
     return adapter;
 }
 
+/**
+ * 仅取回底层可写实例，不换绑 live binding、不清门禁登记（M3 先登记后开写）。
+ * browse 门禁下取原始实例直写心跳占位，成功后调用方再 upgradeToWritable()
+ * 切换 live binding——避免"可写但未登记"窗口被另一 browse 节点判定为空闲而双写。
+ * @returns {import('./EngineAdapter.js').EngineAdapter}
+ */
+export function getWritableAdapter() {
+    return _gateInner.get(adapter) ?? adapter;
+}
+
 export { adapter, SQLiteAdapter, createAdapter };
