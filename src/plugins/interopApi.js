@@ -3,6 +3,7 @@ import InteropApi from '../ipc-electron/interopApi.js';
 import configRepository from '../services/config.js';
 import vrcxJsonStorage from '../services/jsonStorage.js';
 import { initAdapter } from '../services/database/adapter/index.js';
+import { initFeedCollector } from '../services/database/feedCollector.js';
 
 /**
  * Snapshot of the persisted `VRCX_Database.*` keys read at boot, i.e. the
@@ -130,6 +131,10 @@ export async function initInteropApi(isVrOverlay = false) {
             typeof dbPass === 'string' ? dbPass : '';
         bootDbConfig.name = typeof dbName === 'string' ? dbName : '';
         await initAdapter(bootMode);
+
+        // feed 单写开关：必须在任何 feed 写入之前读一次（feed 写入路径是同步
+        // 的，之后只读缓存值）。缺省 / 非法值 → collector。
+        await initFeedCollector();
 
         await configRepository.init();
         new vrcxJsonStorage(VRCXStorage);

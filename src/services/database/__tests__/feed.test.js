@@ -7,8 +7,13 @@ vi.mock('../index.js', () => ({
     }
 }));
 
+vi.mock('../feedCollector.js', () => ({
+    isFeedCollector: vi.fn(() => true)
+}));
+
 import { feed } from '../feed.js';
 import { adapter } from '../adapter/index.js';
+import { isFeedCollector } from '../feedCollector.js';
 
 // ── PG strict GROUP BY compliance ────────────────────────────────────
 //
@@ -147,5 +152,50 @@ describe('feed.addOnlineOfflineToDatabase time normalization', () => {
             time: 3600000
         });
         expect(insertMock.mock.calls[0][1].time).toBe(3600000);
+    });
+});
+
+// ── feed 单写开关（VRCX_FeedCollector）────────────────────────────────
+//
+// 多客户端共享同一数据库时，只有 collector 节点写 feed。feed_* 是账号级
+// 观测（多端会看到同一事件），gamelog / activity 是设备级数据，不经过这里。
+
+describe('feed single-writer gate', () => {
+    let insertMock;
+
+    beforeEach(() => {
+        isFeedCollector.mockReturnValue(true);
+        insertMock = vi.spyOn(adapter, 'insert').mockResolvedValue(1);
+    });
+
+    afterEach(() => {
+        isFeedCollector.mockReturnValue(true);
+        insertMock.mockRestore();
+    });
+
+    test('collector 节点正常写入', () => {
+        feed.addOnlineOfflineToDatabase({
+            created_at: '2026-07-31T00:00:00Z',
+            userId: 'usr_a',
+            displayName: 'Alice',
+            type: 'Online',
+            location: 'wrld_x:1',
+            worldName: 'World X',
+            groupName: '',
+            time: 0
+        });
+        expect(insertMock).toHaveBeenCalledTimes(1);
+    });
+
+    test('非 collector 节点跳过全部 5 个 feed 写入', () => {
+        isFeedCollector.mockReturnValue(false);
+
+        feed.addGPSToDatabase({});
+        feed.addStatusToDatabase({});
+        feed.addBioToDatabase({});
+        feed.addAvatarToDatabase({});
+        feed.addOnlineOfflineToDatabase({});
+
+        expect(insertMock).not.toHaveBeenCalled();
     });
 });

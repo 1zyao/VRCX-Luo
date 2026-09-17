@@ -17,6 +17,7 @@ import { reactive } from 'vue';
 import { parseLocation } from '../shared/utils/location.js';
 import { AppDebug } from './appConfig';
 import { adapter } from './database/adapter/index.js';
+import { isFeedCollector } from './database/feedCollector.js';
 import webApiService from './webapi.js';
 import * as workerTimers from 'worker-timers';
 import { useModalStore } from '../stores/modal';
@@ -344,6 +345,7 @@ export class AccountSession {
     }
 
     _writeGPS(userId, displayName, location, worldName, previousLocation, groupName) {
+        if (!isFeedCollector()) return;
         const p = this.userPrefix;
         adapter.insert(`${p}_feed_gps`, {
             created_at: nowIso(),
@@ -358,6 +360,7 @@ export class AccountSession {
     }
 
     _writeOnlineOffline(userId, displayName, type, location, worldName, groupName) {
+        if (!isFeedCollector()) return;
         const p = this.userPrefix;
         adapter.insert(`${p}_feed_online_offline`, {
             created_at: nowIso(),
