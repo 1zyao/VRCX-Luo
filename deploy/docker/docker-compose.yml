@@ -1,0 +1,27 @@
+# 用法（在仓库根目录执行）：
+#   docker compose -f deploy/docker/docker-compose.yml up -d --build
+#
+# 说明：构建会自动拉取 .NET SDK / Node 基础镜像并完成整套构建（约 15~30 分钟），
+#       之后正常启动约 1 分钟。VRCX 数据持久化在 vrcx-k-data 卷。
+services:
+  vrcx:
+    build:
+      context: ../../
+      dockerfile: deploy/docker/Dockerfile
+    image: vrcx-k:latest
+    container_name: vrcx-k
+    restart: unless-stopped
+    # 让容器内 host.docker.internal 解析到宿主机（Linux Docker 不内置，必须显式加）
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - TZ=Asia/Shanghai
+      - VNC=1
+    volumes:
+      - vrcx-k-data:/root/.config/VRCX
+    # 只暴露 noVNC 网页端口；VNC 协议(5900)仅在容器内由 websockify 转发，不对外
+    ports:
+      - "6080:6080"
+
+volumes:
+  vrcx-k-data:

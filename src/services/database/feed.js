@@ -3,6 +3,106 @@ import { dbVars } from '../database';
 import { adapter } from './adapter/index.js';
 
 /**
+ * 跨客户端双写去重窗口(ms)。
+ *
+ * 两个 VRCX 客户端连同一数据库时，各自轮询到同一 feed 事件会分别写一行，
+ * 且 created_at = 客户端本地检测时间(nowIso())，两行差几十秒(实测集中在
+ * 30~120s)。因此写前用"内容全等 + created_at 落在本窗口"判定是否为同一事件，
+ * 命中则跳过本次写入。窗口需覆盖主要轮询偏差；不宜过大(如 300s)，否则会误
+ * 合并一个人在几个房间/世界间快速来回切换的合法事件。
+ */
+export const FEED_DEDUP_WINDOW_MS = 120000;
+
+/**
+ * 写 feed 前预检：目标表最近 FEED_DEDUP_WINDOW_MS 内是否已存在
+ * "除 created_at/time 外完全一致"的行。命中（说明该事件已写入，通常是
+ * 另一客户端）→ 返回 true。
+ *
+ * MySQL/PostgreSQL 下在事务栈(withTransaction)内用加锁读 `FOR UPDATE`：
+ * 对同一 user_id 的行加锁 → 两个客户端对同一事件的"查+插"串行化，
+ * 后到者等先到者提交后能查到其行而跳过 → 竞态安全(需 user_id 索引支撑)。
+ * SQLite 文件锁天然串行写、且不支持 FOR UPDATE，故走普通查询。
+ *
+ * @param {string} table 物理表名（含账号前缀）
+ * @param {object} data 即将写入的列值映射
+ * @returns {Promise<boolean>} true=窗口内已有相同内容，应跳过本次写入
+ */
+export async function hasRecentDuplicate(table, data) {
+    const cutoff = new Date(Date.now() - FEED_DEDUP_WINDOW_MS).toJSON();
+    const where = [];
+    const params = { __cutoff: cutoff };
+    for (const [key, value] of Object.entries(data)) {
+        if (key === 'created_at' || key === 'time' || value === undefined) {
+            continue;
+        }
+        where.push(`${key} = @${key}`);
+        params[key] = value;
+    }
+    if (where.length === 0) return false;
+    const cond = `${where.join(' AND ')} AND created_at >= @__cutoff`;
+    if (adapter.engineType === 'mysql' || adapter.engineType === 'postgresql') {
+        let found = false;
+        await adapter.execute(
+            (_row) => {
+                found = true;
+            },
+            `SELECT id FROM ${table} WHERE ${cond} ORDER BY id DESC LIMIT 1 FOR UPDATE`,
+            params
+        );
+        if (found) return true;
+        return false;
+    }
+    const rows = await adapter.selectWhere(table, ['id'], cond, params, {
+        order: 'id DESC',
+        limit: 1
+    });
+    if (rows.length > 0) return true;
+    return false;
+}
+
+/**
+ * 跨客户端去重写入：预检命中（窗口内已有相同内容，通常是另一客户端已写入）
+ * → 跳过插入；未命中 → 正常插入。
+ *
+ * fail-open：预检/事务任何异常都回退到直接 insert，绝不因去重逻辑丢失事件
+ * （最坏只是多写一行重复，与现状一致，而不是少写一条真实记录）。
+ *
+ * @param {string} table 物理表名（含账号前缀）
+ * @param {object} data 即将写入的列值映射
+ * @returns {Promise<void>}
+ */
+export async function dedupInsert(table, data) {
+    try {
+        if (
+            adapter.engineType === 'mysql' ||
+            adapter.engineType === 'postgresql'
+        ) {
+            // 加锁读必须落在事务内才生效；两客户端对同一事件的"查+插"被串行化。
+            await adapter.withTransaction(async () => {
+                if (await hasRecentDuplicate(table, data)) return;
+                await adapter.insert(table, data, 'ignore');
+            });
+        } else {
+            if (await hasRecentDuplicate(table, data)) return;
+            await adapter.insert(table, data, 'ignore');
+        }
+    } catch (err) {
+        console.error(
+            `[feed] dedup write failed (${table}), falling back to direct insert:`,
+            err
+        );
+        try {
+            await adapter.insert(table, data, 'ignore');
+        } catch (fallbackErr) {
+            console.error(
+                `[feed] fallback insert failed (${table}):`,
+                fallbackErr
+            );
+        }
+    }
+}
+
+/**
  * 22-column schema shared by all feed UNION ALL queries.
  * Each source realises different positions and NULL-pads the rest.
  */
@@ -204,51 +304,39 @@ function mapFeedRow(dbRow) {
 }
 
 const feed = {
-    addGPSToDatabase(entry) {
-        adapter.insert(
-            `${adapter.userTable(dbVars.userPrefix, 'feed_gps')}`,
-            {
-                created_at: entry.created_at,
-                user_id: entry.userId,
-                display_name: entry.displayName,
-                location: entry.location,
-                world_name: entry.worldName,
-                previous_location: entry.previousLocation,
-                time: entry.time,
-                group_name: entry.groupName
-            },
-            'ignore'
-        );
+    async addGPSToDatabase(entry) {
+        await dedupInsert(adapter.userTable(dbVars.userPrefix, 'feed_gps'), {
+            created_at: entry.created_at,
+            user_id: entry.userId,
+            display_name: entry.displayName,
+            location: entry.location,
+            world_name: entry.worldName,
+            previous_location: entry.previousLocation,
+            time: entry.time,
+            group_name: entry.groupName
+        });
     },
 
-    addStatusToDatabase(entry) {
-        adapter.insert(
-            `${adapter.userTable(dbVars.userPrefix, 'feed_status')}`,
-            {
-                created_at: entry.created_at,
-                user_id: entry.userId,
-                display_name: entry.displayName,
-                status: entry.status,
-                status_description: entry.statusDescription,
-                previous_status: entry.previousStatus,
-                previous_status_description: entry.previousStatusDescription
-            },
-            'ignore'
-        );
+    async addStatusToDatabase(entry) {
+        await dedupInsert(adapter.userTable(dbVars.userPrefix, 'feed_status'), {
+            created_at: entry.created_at,
+            user_id: entry.userId,
+            display_name: entry.displayName,
+            status: entry.status,
+            status_description: entry.statusDescription,
+            previous_status: entry.previousStatus,
+            previous_status_description: entry.previousStatusDescription
+        });
     },
 
-    addBioToDatabase(entry) {
-        adapter.insert(
-            `${adapter.userTable(dbVars.userPrefix, 'feed_bio')}`,
-            {
-                created_at: entry.created_at,
-                user_id: entry.userId,
-                display_name: entry.displayName,
-                bio: entry.bio,
-                previous_bio: entry.previousBio
-            },
-            'ignore'
-        );
+    async addBioToDatabase(entry) {
+        await dedupInsert(adapter.userTable(dbVars.userPrefix, 'feed_bio'), {
+            created_at: entry.created_at,
+            user_id: entry.userId,
+            display_name: entry.displayName,
+            bio: entry.bio,
+            previous_bio: entry.previousBio
+        });
     },
 
     async getLastBioChangeForUser(userId) {
@@ -334,25 +422,21 @@ const feed = {
         }));
     },
 
-    addAvatarToDatabase(entry) {
-        adapter.insert(
-            `${adapter.userTable(dbVars.userPrefix, 'feed_avatar')}`,
-            {
-                created_at: entry.created_at,
-                user_id: entry.userId,
-                display_name: entry.displayName,
-                owner_id: entry.ownerId,
-                avatar_name: entry.avatarName,
-                current_avatar_image_url: entry.currentAvatarImageUrl,
-                current_avatar_thumbnail_image_url:
-                    entry.currentAvatarThumbnailImageUrl,
-                previous_current_avatar_image_url:
-                    entry.previousCurrentAvatarImageUrl,
-                previous_current_avatar_thumbnail_image_url:
-                    entry.previousCurrentAvatarThumbnailImageUrl
-            },
-            'ignore'
-        );
+    async addAvatarToDatabase(entry) {
+        await dedupInsert(adapter.userTable(dbVars.userPrefix, 'feed_avatar'), {
+            created_at: entry.created_at,
+            user_id: entry.userId,
+            display_name: entry.displayName,
+            owner_id: entry.ownerId,
+            avatar_name: entry.avatarName,
+            current_avatar_image_url: entry.currentAvatarImageUrl,
+            current_avatar_thumbnail_image_url:
+                entry.currentAvatarThumbnailImageUrl,
+            previous_current_avatar_image_url:
+                entry.previousCurrentAvatarImageUrl,
+            previous_current_avatar_thumbnail_image_url:
+                entry.previousCurrentAvatarThumbnailImageUrl
+        });
     },
 
     /**
@@ -374,9 +458,9 @@ const feed = {
         }
     },
 
-    addOnlineOfflineToDatabase(entry) {
-        adapter.insert(
-            `${adapter.userTable(dbVars.userPrefix, 'feed_online_offline')}`,
+    async addOnlineOfflineToDatabase(entry) {
+        await dedupInsert(
+            adapter.userTable(dbVars.userPrefix, 'feed_online_offline'),
             {
                 created_at: entry.created_at,
                 user_id: entry.userId,
@@ -389,8 +473,7 @@ const feed = {
                 // 统一归一化为 NULL —— 三引擎均接受，语义也更准确。
                 time: entry.time === '' ? null : entry.time,
                 group_name: entry.groupName
-            },
-            'ignore'
+            }
         );
     },
 
@@ -796,9 +879,7 @@ const feed = {
         const baseWhere = `created_at >= @daysAgo AND location LIKE 'wrld_%' AND ${adapter.sqlHasInstanceId('location')} AND world_name IS NOT NULL AND world_name != ''`;
 
         const mainRows = await adapter.selectGroupBy(gpsTable, {
-            columns: [
-                `${adapter.sqlExtractWorldId('location')} AS world_id`
-            ],
+            columns: [`${adapter.sqlExtractWorldId('location')} AS world_id`],
             aggregates: [
                 { expr: 'MAX(world_name)', alias: 'world_name' },
                 { expr: 'COUNT(*)', alias: 'visit_count' },

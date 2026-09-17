@@ -84,17 +84,27 @@ EngineAdapter 基类:
 `_txStack` 非空即被误判为"嵌套"抛错;若放行则两个事务同时存在,SQL 全部
 打到同一个 pinned 连接,引发 C# 侧连接损坏。
 
-**方案**:`withTransaction` 增加串行队列(`_txTail` Promise 链):
+**方案**:`withTransaction` 增加串行队列(`_txTail` Promise 链)+ 超时兜底:
 
 - 并发调用按到达顺序排队,前一个事务 commit/rollback 后才执行下一个,
   同一 adapter 实例同时只有一个事务 → 原子性与并发安全兼得。
-- 真正**调用栈嵌套**(在另一个 withTransaction 的 fn 同步段内再次调用)
-  仍抛错:进入 fn 前置 `_txInFn = true`,fn 的同步前缀(异步函数执行到首个
-  await 前)完成后立即复位。同步段内的再次调用会被 `_txInFn` 捕获;
-  并发调用在 fn 挂起后才进入,此时 `_txInFn` 已复位 → 走串行队列而非抛错。
+- 同步**调用栈嵌套**(在另一个 withTransaction 的 fn 同步段内再次调用)
+  立即抛错:进入 fn 前置 `_txInFn = true`,fn 的同步前缀(异步函数执行到首个
+  await 前)完成后立即复位。同步段内的再次调用会被 `_txInFn` 捕获。
+- `await` 之后的嵌套调用(此时 `_txInFn` 已复位)由队列超时兜底:
+  `await prev` 用 `Promise.race` 加 `_txWaitTimeoutMs`(默认 30s)超时。
+  嵌套时外层事务要等内层返回才释放队列 → `prev` 永不 resolve → 超时抛错,
+  防止永久挂起(旧实现在此直接抛"不支持嵌套事务")。正常并发排队远小于
+  超时(毫秒级),不会误触发;远程慢事务也只是等待,不会被误杀。
 - `beginTransaction` 保留栈非空检查作防御(手动模式/测试)。
 - 隔离保证不变:每个 adapter 实例独立 `_txStack`/`_txTail`,srcAdapter/
   dstAdapter 天然不交叉。
+
+> 死锁盲区说明(2026-08-18,PR #28 review):串行队列若不加超时,事务 fn
+> 内 `await` 之后再调 `withTransaction` 会"排队等死"——内层等外层释放,
+> 外层等内层返回,永久挂起。超时兜底将挂起转为可 catch 的异常。当前生产
+> 代码 10 处 withTransaction 调用点均无嵌套(事务体内只做纯 DB 操作),
+> 死锁为将来误用场景的防御性兜底。
 
 ### keepAlive() — 事务心跳续命
 

@@ -1,0 +1,32 @@
+# 构建上下文排除（服务器容器内会重新生成这些）
+node_modules
+build
+.git
+.github
+.gito
+.vs
+.vscode
+.zed
+.idea
+Installer
+tools
+coverage
+TempLogs
+.tmp
+.tmp_imgs
+test
+docs
+*.log
+*.bak
+.env.sentry-build-plugin
+
+# .NET 中间产物（容器内重建）
+**/obj
+**/obj1
+
+# 构建辅助运行时（保留 licenses，build:licenses 需要读取 nuget-overrides.json）
+build-scripts/node
+
+# 本地数据库/临时文件
+*.sqlite
+*.db
