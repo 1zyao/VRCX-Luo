@@ -1,6 +1,7 @@
 import { dbVars } from '../database';
 
 import { adapter } from './adapter/index.js';
+import { dedupInsert } from './feed.js';
 
 const friendLogHistory = {
     async getFriendLogHistory() {
@@ -29,9 +30,9 @@ const friendLogHistory = {
             .reverse();
     },
 
-    addFriendLogHistory(entry) {
-        adapter.insert(
-            `${adapter.userTable(dbVars.userPrefix, 'friend_log_history')}`,
+    async addFriendLogHistory(entry) {
+        await dedupInsert(
+            adapter.userTable(dbVars.userPrefix, 'friend_log_history'),
             {
                 created_at: entry.created_at,
                 type: entry.type,
@@ -41,8 +42,7 @@ const friendLogHistory = {
                 trust_level: entry.trustLevel,
                 previous_trust_level: entry.previousTrustLevel,
                 friend_number: entry.friendNumber
-            },
-            'ignore'
+            }
         );
     },
 

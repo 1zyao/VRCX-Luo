@@ -1350,6 +1350,21 @@ class PgSQLAdapter extends EngineAdapter {
         await this.executeNonQuery(
             `CREATE INDEX IF NOT EXISTS feed_online_offline_user_created_idx ON ${tbl('feed_online_offline')} (user_id, created_at)`
         );
+        // 多客户端共库去重预检（dedupInsert 的 SELECT ... FOR UPDATE）需要
+        // user_id 索引（与 feed_online_offline 的 user_created_idx /
+        // friend_log_history 的 user_id_idx 对齐，普通非唯一）。
+        await this.executeNonQuery(
+            `CREATE INDEX IF NOT EXISTS feed_gps_user_id_idx ON ${tbl('feed_gps')} (user_id)`
+        );
+        await this.executeNonQuery(
+            `CREATE INDEX IF NOT EXISTS feed_status_user_id_idx ON ${tbl('feed_status')} (user_id)`
+        );
+        await this.executeNonQuery(
+            `CREATE INDEX IF NOT EXISTS feed_bio_user_id_idx ON ${tbl('feed_bio')} (user_id)`
+        );
+        await this.executeNonQuery(
+            `CREATE INDEX IF NOT EXISTS feed_avatar_user_id_idx ON ${tbl('feed_avatar')} (user_id)`
+        );
         await this.executeNonQuery(
             `CREATE INDEX IF NOT EXISTS activity_sessions_v2_user_start_idx ON ${tbl('activity_sessions_v2')} (user_id, start_at)`
         );
