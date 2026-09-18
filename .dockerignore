@@ -23,6 +23,7 @@ docs
 # .NET 中间产物（容器内重建）
 **/obj
 **/obj1
+**/bin
 
 # 构建辅助运行时（保留 licenses，build:licenses 需要读取 nuget-overrides.json）
 build-scripts/node
