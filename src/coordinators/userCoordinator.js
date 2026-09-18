@@ -363,6 +363,7 @@ export function showUserDialog(userId) {
         return;
     }
     D.id = userId;
+    D.publicProfileRef = {};
     D.memo = '';
     D.note = '';
     getUserMemo(userId).then((memo) => {
@@ -429,11 +430,11 @@ export function showUserDialog(userId) {
             D.$homeLocationName = worldName;
         });
     }
+    updateUserDialogProfile();
     AppApi.SendIpc('ShowUserDialog', userId);
-    // Capture cached bio and status before the API fetch so we can detect whether
+    // Capture cached status before the API fetch so we can detect whether
     // applyUser (called inside the fetch) already triggered
     // runHandleUserUpdateFlow to record the same change.
-    const bioBefore = userStore.cachedUsers.get(userId)?.bio;
     const statusBefore = userStore.cachedUsers.get(userId)?.status;
     queryRequest
         .fetch('user', {
@@ -458,37 +459,8 @@ export function showUserDialog(userId) {
                     D.ref?.displayName || D.id
                 );
 
-                // Record bio snapshot for any user (friend or stranger) when
-                // their profile is viewed, skipping if bio hasn't changed.
-                // Also skip when runHandleUserUpdateFlow already recorded this
-                // exact bio change: that path fires for friends whenever bio
-                // transitions from one non-empty value to another non-empty
-                // value. Racing with it would insert a duplicate record.
-                if (userId !== currentUser.id && D.ref.bio !== undefined) {
-                    const currentBio = D.ref.bio || '';
-                    const isFriend = friendStore.friends.has(userId);
-                    const eventFlowWillRecord =
-                        isFriend &&
-                        bioBefore !== undefined &&
-                        Boolean(bioBefore) &&
-                        Boolean(currentBio) &&
-                        bioBefore !== currentBio;
-                    if (!eventFlowWillRecord) {
-                        database.getLastBioChangeForUser(userId).then((last) => {
-                            if (!last || last.bio !== currentBio) {
-                                database.addBioToDatabase({
-                                    created_at: new Date().toJSON(),
-                                    userId,
-                                    displayName: D.ref.displayName,
-                                    bio: currentBio,
-                                    previousBio: last ? last.bio : ''
-                                });
-                            }
-                        }).catch((err) => {
-                            console.error('Failed to record bio snapshot:', err);
-                        });
-                    }
-                }
+                // Bio snapshot moved to updateUserDialogProfile(): the VRChat API
+                // no longer returns bio on the user object, only on profile/{id}.
 
                 // Record status snapshot for any user (friend or stranger) when
                 // their profile is viewed, skipping if status hasn't changed.
@@ -723,6 +695,57 @@ export function showUserDialog(userId) {
         });
     showUserDialogHistory.delete(userId);
     showUserDialogHistory.add(userId);
+}
+
+/**
+ * Fetch the public profile for the open user dialog.
+ * Bio/bioLinks/badges/iconUrl live on `profile/{userId}` since the recent
+ * VRChat API change, not on the user object.
+ */
+export function updateUserDialogProfile() {
+    const D = useUserStore().userDialog;
+    userRequest
+        .getPublicProfile({ userId: D.id })
+        .then((args1) => {
+            if (args1.params.userId !== D.id) {
+                return;
+            }
+            D.publicProfileRef = args1.json;
+            recordBioSnapshot(D.id, args1.json.bio || '');
+        })
+        .catch((err) => {
+            console.error('Failed to fetch public profile', err);
+            D.publicProfileRef = {};
+        });
+}
+
+/**
+ * Record a bio snapshot for a viewed profile, skipping when unchanged.
+ * @param {string} userId
+ * @param {string} currentBio
+ */
+function recordBioSnapshot(userId, currentBio) {
+    const userStore = useUserStore();
+    if (userId === userStore.currentUser.id) {
+        return;
+    }
+    const displayName = userStore.cachedUsers.get(userId)?.displayName || '';
+    database
+        .getLastBioChangeForUser(userId)
+        .then((last) => {
+            if (!last || last.bio !== currentBio) {
+                database.addBioToDatabase({
+                    created_at: new Date().toJSON(),
+                    userId,
+                    displayName,
+                    bio: currentBio,
+                    previousBio: last ? last.bio : ''
+                });
+            }
+        })
+        .catch((err) => {
+            console.error('Failed to record bio snapshot:', err);
+        });
 }
 
 /**
@@ -1078,6 +1101,7 @@ export function applyCurrentUser(json) {
         discordId: json.discordId,
         displayName: json.displayName,
         friendKey: json.friendKey,
+        iconUrl: json.iconUrl,
         id: json.id,
         isFriend: json.isFriend,
         last_activity: json.last_activity,

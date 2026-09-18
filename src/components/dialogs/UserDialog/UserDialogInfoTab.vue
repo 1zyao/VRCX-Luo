@@ -179,11 +179,11 @@
                     v-else
                     class="text-xs truncate font-[inherit]"
                     style="white-space: pre-wrap; margin: 0 0.5em 0 0; max-height: 210px; overflow-y: auto"
-                    >{{ bioCache.translated || userDialog.ref.bio || '-' }}</pre
+                    >{{ bioCache.translated || userDialog.publicProfileRef?.bio || '-' }}</pre
                 >
                 <div style="float: right">
                     <Button
-                        v-if="translationApi && userDialog.ref.bio"
+                        v-if="translationApi && userDialog.publicProfileRef?.bio"
                         class="w-3 h-6 text-xs mr-0.5"
                         size="icon-sm"
                         variant="ghost"
@@ -220,7 +220,7 @@
                     </Button>
                 </div>
                 <div style="margin-top: 6px" class="flex items-center">
-                    <TooltipWrapper v-for="(link, index) in userDialog.ref.bioLinks" :key="index">
+                    <TooltipWrapper v-for="(link, index) in userDialog.publicProfileRef?.bioLinks" :key="index">
                         <template #content>
                             <span v-text="link"></span>
                         </template>
@@ -670,7 +670,7 @@
         () => ({
             visible: userDialog.value.visible,
             id: userDialog.value.id,
-            bio: userDialog.value.ref?.bio || ''
+            bio: userDialog.value.publicProfileRef?.bio || ''
         }),
         ({ visible, id }) => {
             if (!visible || !id) {
@@ -714,7 +714,7 @@
         if (translateLoading.value) {
             return;
         }
-        const bio = userDialog.value.ref.bio;
+        const bio = userDialog.value.publicProfileRef?.bio;
         if (!bio) {
             return;
         }

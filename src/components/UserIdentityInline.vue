@@ -132,7 +132,7 @@
             resolvedUser.value?.id,
             resolvedUser.value?.profilePicOverrideThumbnail,
             resolvedUser.value?.currentAvatarThumbnailImageUrl,
-            resolvedUser.value?.userIcon
+            resolvedUser.value?.iconUrl
         ],
         hydrateMissingIdentity,
         { immediate: true, flush: 'post' }

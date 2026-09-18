@@ -197,13 +197,13 @@ function userImage(
         return '';
     }
     if (
-        (isUserDialogIcon && user.userIcon) ||
-        (displayVRCPlusIconsAsAvatar && user.userIcon)
+        (isUserDialogIcon && user.iconUrl) ||
+        (displayVRCPlusIconsAsAvatar && user.iconUrl)
     ) {
         if (isIcon) {
-            return convertFileUrlToImageUrl(user.userIcon);
+            return convertFileUrlToImageUrl(user.iconUrl);
         }
-        return user.userIcon;
+        return user.iconUrl;
     }
 
     if (user.profilePicOverrideThumbnail) {
@@ -249,8 +249,8 @@ function userImageFull(user, displayVRCPlusIconsAsAvatar = false) {
     if (!user) {
         return '';
     }
-    if (displayVRCPlusIconsAsAvatar && user.userIcon) {
-        return user.userIcon;
+    if (displayVRCPlusIconsAsAvatar && user.iconUrl) {
+        return user.iconUrl;
     }
     if (user.profilePicOverride) {
         return user.profilePicOverride;
