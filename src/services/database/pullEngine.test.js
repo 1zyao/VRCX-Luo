@@ -201,8 +201,8 @@ describe('pullEngine — 基本 pull', () => {
 
         const result = await pullToSqlite('sqlite:///fake/dst.db');
 
-        // MySQL 分支:globalSchema 含源里全部 global 表(initGlobalSchema 建 18 张)。
-        expect(result.globalTables).toBe(18);
+        // MySQL 分支:globalSchema 含源里全部 global 表(initGlobalSchema 建 19 张)。
+        expect(result.globalTables).toBe(19);
         // userTasksByPrefix 含 abc 的全部 22 张表,但只有 abc_notes 有数据。
         // copyTable 对空表也 +1,所以 userTables=22。
         expect(result.userTables).toBe(22);
@@ -270,7 +270,7 @@ describe('pullEngine — 分组事务原子性', () => {
         expect(await dstCount('abc_notes')).toBe(0);
         // DDL 与数据同事务:回滚后目标端连表都不存在(不留空表)。
         expect(await dstAdapter.listTables('%abc_notes')).toHaveLength(0);
-        expect(result.globalTables).toBe(18);
+        expect(result.globalTables).toBe(19);
         expect(result.errors).toHaveLength(1);
         // 错误消息带 prefix(与 pushEngine 格式对称)。
         expect(result.errors[0]).toContain('user-group:abc');

@@ -38,7 +38,7 @@
 //     whole pull. Tables within a group share one transaction (atomic +
 //     1 fsync per group instead of per-batch).
 //   - Row-count verification per table; deeper sampling left to QA.
-//   - DATA-INTEGRITY PRIORITY: the 18 global + 22 user base-name whitelists
+//   - DATA-INTEGRITY PRIORITY: the 19 global + 22 user base-name whitelists
 //     cover the *known* schema, but the backup MUST NOT silently drop tables
 //     that fall outside them (upstream additions, legacy tables, etc.).
 //     After the known tables are copied, every
@@ -55,11 +55,14 @@
 import { adapter, createAdapter } from './adapter/index.js';
 
 /**
- * 18 global tables (public schema) — mirrors `pushEngine.js`'s
+ * 19 global tables (public schema) — mirrors `pushEngine.js`'s
  * `GLOBAL_TABLES` and `SQLiteAdapter.initGlobalSchema` /
  * `PgSQLAdapter.initGlobalSchema` / `MySQLAdapter.initGlobalSchema`
  * table-for-table. Used to split the flat MySQL/SQLite `listTablesTypes`
  * result into global vs user vs unknown buckets.
+ *
+ * `node_registry` 是节点心跳表：复制过去也无害（旧时间戳会被 TTL 过滤掉），
+ * 但必须登记在这里，否则会被当成「未知表」镜像复制。
  * @type {string[]}
  */
 const GLOBAL_TABLES = [
@@ -80,7 +83,8 @@ const GLOBAL_TABLES = [
     'avatar_memos',
     'avatar_tags',
     'cookies',
-    'configs'
+    'configs',
+    'node_registry'
 ];
 
 /**
@@ -132,7 +136,7 @@ const USER_TABLE_NAMES_BY_LENGTH_DESC = [...USER_TABLE_NAMES].sort(
 
 /**
  * @typedef {Object} PullResult
- * @property {number} globalTables - count of whitelist global tables actually enumerated on the source (MySQL: flat `listTablesTypes` whitelist filter; PG: `listGlobalTablesTypes` whitelist filter), ≤18; unlike push side which is always 18 (fixed whitelist iteration, includes missing tables)
+ * @property {number} globalTables - count of whitelist global tables actually enumerated on the source (MySQL: flat listTablesTypes whitelist filter; PG: listGlobalTablesTypes whitelist filter), 恒 ≤19; unlike push side which is always 19 (fixed whitelist iteration, includes missing tables)
  * @property {number} userTables - number of known user tables processed (across all prefixes)
  * @property {number} unknownTables - number of non-whitelist tables mirrored + copied (data-integrity safety net)
  * @property {number} rowsCopied - total rows copied

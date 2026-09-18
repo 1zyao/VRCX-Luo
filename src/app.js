@@ -11,6 +11,7 @@ import {
 import { initPiniaPlugins, pinia } from './stores';
 import { queryClient } from './queries';
 import { initAccountHubWatcher } from './services/accountHub.js';
+import { stopFeedCollector } from './services/database/feedCollector.js';
 
 import App from './App.vue';
 
@@ -41,3 +42,9 @@ await initSentry(app);
 initAccountHubWatcher();
 
 app.mount('#root');
+
+// 退出时尽力注销 node_registry 心跳行，让其他节点立刻接管（而非等满 120s TTL）。
+// beforeunload 里不能 await，DB 删除是 fire-and-forget，失败由 TTL 兜底。
+window.addEventListener('beforeunload', () => {
+    stopFeedCollector();
+});
