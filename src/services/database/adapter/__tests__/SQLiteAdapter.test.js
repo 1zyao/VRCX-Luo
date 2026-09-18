@@ -1087,6 +1087,7 @@ describe('Schema — initUserSchema / initGlobalSchema / userTable', () => {
         expect(tables).toContain('favorite_world');
         expect(tables).toContain('memos');
         expect(tables).toContain('avatar_tags');
+        expect(tables).toContain('node_registry');
     });
 
     test('initGlobalSchema() creates the 4 gamelog indexes (idx_gamelog_*)', async () => {

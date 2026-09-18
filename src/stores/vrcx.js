@@ -210,6 +210,29 @@ export const useVrcxStore = defineStore('Vrcx', () => {
                 );
             }
 
+            // MySQL 旧库护卫（activity v2 毫秒时间戳列被误声明为 INT）：
+            // activity_sessions_v2.start_at/end_at 与 activity_sync_state_v2.
+            // pending_session_start_at 存的是毫秒时间戳，INT 上限 2147483647
+            // 会把值钳到 1970-01-25，严格模式下新写入直接报 Out of range →
+            // 活动统计图表完全无法落缓存。CREATE TABLE IF NOT EXISTS 不会升级
+            // 既有列，故每次启动幂等补升级 + 清理钳位垃圾行（仅 MySQLAdapter
+            // 提供该方法，其它引擎经可选链短路；失败仅 warn，不阻塞启动）。
+            try {
+                await adapter.initActivityV2BigIntColumns?.();
+            } catch (error) {
+                console.warn('[db] MySQL activity v2 时间戳列 BIGINT 升级失败', error);
+            }
+
+            // node_registry 心跳表（feed 单写自动接管判定用）：与上面同理，
+            // CREATE TABLE IF NOT EXISTS 只在全新库/迁移路径执行，版本号 == 当前
+            // 的存量库不会触发 → 心跳 upsert 报 "Table doesn't exist"。
+            // 每次启动幂等补建（三引擎都提供该方法；失败仅 warn，不阻塞启动）。
+            try {
+                await adapter.initNodeRegistry?.();
+            } catch (error) {
+                console.warn('[db] node_registry 心跳表创建失败', error);
+            }
+
             clearVRCXCacheFrequency.value = await configRepository.getInt(
                 'VRCX_clearVRCXCacheFrequency',
                 172800

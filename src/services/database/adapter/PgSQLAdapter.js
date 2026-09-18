@@ -1493,6 +1493,7 @@ class PgSQLAdapter extends EngineAdapter {
         await this.executeNonQuery(
             `CREATE TABLE IF NOT EXISTS public.configs (key TEXT PRIMARY KEY, value TEXT)`
         );
+        await this.initNodeRegistry();
         // Step 2 — create the 5 global indexes (names preserved from
         // SQLiteAdapter; they remain unique within the public schema).
         await this.executeNonQuery(
@@ -1531,6 +1532,25 @@ class PgSQLAdapter extends EngineAdapter {
         this._tablePkMap.set('avatar_memos', ['avatar_id']);
         this._tablePkMap.set('avatar_tags', ['avatar_id', 'tag']);
         this._tablePkMap.set('cookies', ['key']);
+    }
+
+    /**
+     * 建 node_registry 心跳表（幂等）。多节点 feed 单写自动接管判定用（见
+     * `nodeRegistry.js`）。
+     *
+     * 除 initGlobalSchema 外，`stores/vrcx.js` 每次启动也会调用一次 ——
+     * initGlobalSchema 只在全新库与迁移路径执行，版本号 == 当前版本的存量库
+     * 永远不触发，表会缺失导致心跳失败。
+     *
+     * upsertPartial 显式传 conflictColumn，无需登记 _tablePkMap。
+     *
+     * @returns {Promise<void>}
+     */
+    async initNodeRegistry() {
+        // node_id 每会话随机生成，不持久化；每 30s upsert 一行，120s 无心跳视为失活。
+        await this.executeNonQuery(
+            `CREATE TABLE IF NOT EXISTS public.node_registry (node_id TEXT PRIMARY KEY, mode TEXT NOT NULL, prefixes TEXT NOT NULL, heartbeat_at TEXT NOT NULL)`
+        );
     }
 
     // ── Metadata (listTables / getTableColumns / listTablesTypes) ─────
