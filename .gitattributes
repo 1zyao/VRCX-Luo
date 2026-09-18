@@ -61,3 +61,8 @@
 #*.PDF   diff=astextplain
 #*.rtf   diff=astextplain
 #*.RTF   diff=astextplain
+
+###############################################################################
+# Shell 脚本强制 LF：CRLF 会让 Linux 容器里的 entrypoint.sh 报 bad interpreter
+###############################################################################
+*.sh text eol=lf
