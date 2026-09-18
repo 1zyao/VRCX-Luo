@@ -138,6 +138,7 @@ interface GetUserResponse {
     displayName: string;
     friendKey: string;
     friendRequestStatus?: string;
+    iconUrl: string;
     id: string;
     instanceId?: string;
     isFriend: boolean;

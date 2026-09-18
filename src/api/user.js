@@ -186,6 +186,24 @@ const userReq = {
             };
             return args;
         });
+    },
+
+    /**
+     * Fetch public profile from API.
+     * Bio/badges/iconUrl/theme moved out of the user object into this endpoint.
+     * @param {{ userId: string }} params
+     * @returns {Promise<{ json: import('../types/api/profile').publicProfile; params: { userId: string } }>}
+     */
+    getPublicProfile(params) {
+        return request(`profile/${params.userId}`, {
+            method: 'GET'
+        }).then((json) => {
+            const args = {
+                json,
+                params
+            };
+            return args;
+        });
     }
 };
 

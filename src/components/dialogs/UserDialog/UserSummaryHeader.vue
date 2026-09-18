@@ -236,7 +236,10 @@
                     >
                 </div>
                 <div data-testid="user-summary-badges" class="mt-1 flex flex-wrap items-center gap-1">
-                    <TooltipWrapper v-for="badge in userDialog.ref.badges" :key="badge.badgeId" side="top">
+                    <TooltipWrapper
+                        v-for="badge in userDialog.publicProfileRef?.badges"
+                        :key="badge.badgeId"
+                        side="top">
                         <template #content>
                             <span>{{ badge.badgeName }}</span>
                             <span v-if="badge.hidden">&nbsp;(Hidden)</span>
@@ -302,13 +305,13 @@
                 </div>
             </div>
 
-            <div v-if="userDialog.ref.userIcon" class="shrink-0">
+            <div v-if="userDialog.publicProfileRef?.iconUrl" class="shrink-0">
                 <img
                     v-if="!userIconError"
                     class="cursor-pointer"
-                    :src="userImage(userDialog.ref, true, '256', true)"
+                    :src="userImage(userDialog.publicProfileRef, true, '256', true)"
                     style="flex: none; width: 120px; height: 120px; border-radius: var(--radius-xl); object-fit: cover"
-                    @click="showFullscreenImageDialog(userDialog.ref.userIcon)"
+                    @click="showFullscreenImageDialog(userDialog.publicProfileRef?.iconUrl)"
                     @error="userIconError = true"
                     loading="lazy" />
                 <div

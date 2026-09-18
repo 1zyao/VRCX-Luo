@@ -169,7 +169,7 @@
                             <Button
                                 variant="outline"
                                 size="sm"
-                                :disabled="!currentUser.userIcon"
+                                :disabled="!currentUser.iconUrl"
                                 @click="setVRCPlusIcon('')">
                                 <X />
                                 {{ t('dialog.gallery_icons.clear') }}
@@ -1019,7 +1019,7 @@
         if (fileId) {
             userIcon = `${AppDebug.endpointDomain}/file/${fileId}/1`;
         }
-        if (userIcon === currentUser.value.userIcon) {
+        if (userIcon === currentUser.value.iconUrl) {
             return;
         }
         userRequest
@@ -1037,7 +1037,7 @@
      * @param userIcon
      */
     function compareCurrentVRCPlusIcon(userIcon) {
-        return isCurrentFile(currentUser.value.userIcon, userIcon);
+        return isCurrentFile(currentUser.value.iconUrl, userIcon);
     }
 
     /**

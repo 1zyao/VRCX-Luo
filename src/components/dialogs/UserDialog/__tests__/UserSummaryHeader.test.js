@@ -21,12 +21,14 @@ const stores = vi.hoisted(() => ({
             profilePicOverride: '',
             currentAvatarThumbnailImageUrl: 'https://example.com/avatar.png',
             currentAvatarImageUrl: 'https://example.com/avatar-full.png',
-            userIcon: 'https://example.com/icon.png',
             $languages: [{ key: 'eng', value: 'English' }],
             $trustClass: 'x-tag-known',
             $trustLevel: 'Known User',
             $platform: 'standalonewindows',
-            $customTag: '',
+            $customTag: ''
+        },
+        publicProfileRef: {
+            iconUrl: 'https://example.com/icon.png',
             badges: [
                 {
                     badgeId: 'bdg_1',

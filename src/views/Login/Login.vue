@@ -343,7 +343,7 @@
     function savedAccountImage(user) {
         if (!user) return '';
         return (
-            user.userIcon ||
+            user.iconUrl ||
             user.profilePicOverrideThumbnail ||
             user.profilePicOverride ||
             user.thumbnailUrl ||

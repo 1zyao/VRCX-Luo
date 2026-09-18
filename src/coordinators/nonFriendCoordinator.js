@@ -39,8 +39,9 @@ export async function refreshTrackedNonFriendsFlow() {
                     await database.updateTrackedNonFriendDisplayName(userId, displayName);
                 }
 
-                // Record bio change
-                const currentBio = ref.bio || '';
+                // Record bio change (API 变更后 bio 只由 profile/{id} 返回)
+                const profileResult = await userRequest.getPublicProfile({ userId });
+                const currentBio = profileResult?.json?.bio || '';
                 const lastBio = await database.getLastBioChangeForUser(userId);
                 if (!lastBio || lastBio.bio !== currentBio) {
                     database.addBioToDatabase({

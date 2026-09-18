@@ -539,9 +539,9 @@ describe('User Utils', () => {
             expect(userImage({}, false, '128', false, false)).toBe('');
         });
 
-        test('returns userIcon when displayVRCPlusIconsAsAvatar is true', () => {
+        test('returns iconUrl when displayVRCPlusIconsAsAvatar is true', () => {
             const user = {
-                userIcon: 'https://img.com/icon',
+                iconUrl: 'https://img.com/icon',
                 thumbnailUrl: 'https://img.com/thumb'
             };
             expect(userImage(user, false, '128', false, true)).toBe(
@@ -549,16 +549,16 @@ describe('User Utils', () => {
             );
         });
 
-        test('converts userIcon for icon mode when VRCPlus setting enabled', () => {
-            const user = { userIcon: 'https://img.com/icon' };
+        test('converts iconUrl for icon mode when VRCPlus setting enabled', () => {
+            const user = { iconUrl: 'https://img.com/icon' };
             expect(userImage(user, true, '128', false, true)).toBe(
                 'converted:https://img.com/icon'
             );
         });
 
-        test('returns userIcon for isUserDialogIcon even if VRCPlus setting off', () => {
+        test('returns iconUrl for isUserDialogIcon even if VRCPlus setting off', () => {
             const user = {
-                userIcon: 'https://img.com/icon',
+                iconUrl: 'https://img.com/icon',
                 thumbnailUrl: 'https://img.com/thumb'
             };
             expect(userImage(user, false, '128', true, false)).toBe(
@@ -597,9 +597,9 @@ describe('User Utils', () => {
             expect(userImageFull(user, false)).toBe('https://img.com/avatar');
         });
 
-        test('returns userIcon when VRCPlus setting enabled', () => {
+        test('returns iconUrl when VRCPlus setting enabled', () => {
             const user = {
-                userIcon: 'https://img.com/icon',
+                iconUrl: 'https://img.com/icon',
                 profilePicOverride: 'https://img.com/full'
             };
             expect(userImageFull(user, true)).toBe('https://img.com/icon');
