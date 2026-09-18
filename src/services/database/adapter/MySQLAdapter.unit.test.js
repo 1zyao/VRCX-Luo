@@ -378,6 +378,117 @@ describe('_ensureLongTextColumn(旧库 value 列升级)', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────
+// Bug: MySQL 旧库 activity v2 的毫秒时间戳列被误声明为 INT
+// start_at / end_at / pending_session_start_at 存的是 Date.getTime() 毫秒值,
+// INT 上限 2147483647 会把它钳到 1970-01-25(非严格模式)或直接报
+// "Out of range value for column 'start_at'"(严格模式) → 活动统计图表无法
+// 落缓存。initActivityV2BigIntColumns 幂等升级列类型并清理钳位垃圾行。
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('initActivityV2BigIntColumns(activity v2 时间戳列升级)', () => {
+    /** @type {MySQLAdapter} */
+    let adapter;
+
+    beforeEach(() => {
+        adapter = new MySQLAdapter();
+        adapter.executeNonQuery = vi.fn().mockResolvedValue(0);
+        adapter.listTables = vi.fn().mockResolvedValue([]);
+        adapter.execute = vi.fn().mockImplementation(async (cb) => cb(['int']));
+    });
+
+    it('无 activity 表 → 零 SQL 写', async () => {
+        await adapter.initActivityV2BigIntColumns();
+        expect(adapter.executeNonQuery).not.toHaveBeenCalled();
+    });
+
+    it('int 列 → ALTER MODIFY BIGINT(会话表复述 NOT NULL)', async () => {
+        adapter.listTables = vi
+            .fn()
+            .mockImplementation(async (pattern) =>
+                pattern === '%_activity_sessions_v2'
+                    ? ['abc_activity_sessions_v2']
+                    : []
+            );
+        await adapter.initActivityV2BigIntColumns();
+        const sqls = adapter.executeNonQuery.mock.calls.map((c) => c[0]);
+        expect(sqls).toContain(
+            'ALTER TABLE `abc_activity_sessions_v2` MODIFY `start_at` BIGINT NOT NULL'
+        );
+        expect(sqls).toContain(
+            'ALTER TABLE `abc_activity_sessions_v2` MODIFY `end_at` BIGINT NOT NULL'
+        );
+    });
+
+    it('已是 bigint → 零 ALTER(DATA_TYPE 大小写不敏感)', async () => {
+        adapter.listTables = vi
+            .fn()
+            .mockImplementation(async (pattern) =>
+                pattern === '%_activity_sessions_v2'
+                    ? ['abc_activity_sessions_v2']
+                    : []
+            );
+        adapter.execute = vi
+            .fn()
+            .mockImplementation(async (cb) => cb(['BIGINT']));
+        await adapter.initActivityV2BigIntColumns();
+        const sqls = adapter.executeNonQuery.mock.calls.map((c) => c[0]);
+        expect(sqls.filter((s) => s.startsWith('ALTER TABLE'))).toEqual([]);
+    });
+
+    it('删除 start_at / end_at 等于 INT 上限的钳位行', async () => {
+        adapter.listTables = vi
+            .fn()
+            .mockImplementation(async (pattern) =>
+                pattern === '%_activity_sessions_v2'
+                    ? ['abc_activity_sessions_v2']
+                    : []
+            );
+        await adapter.initActivityV2BigIntColumns();
+        const sqls = adapter.executeNonQuery.mock.calls.map((c) => c[0]);
+        expect(sqls).toContain(
+            'DELETE FROM `abc_activity_sessions_v2` WHERE start_at = 2147483647 OR end_at = 2147483647'
+        );
+    });
+
+    it('sync_state 表:升级游标列并把钳位游标置 NULL', async () => {
+        adapter.listTables = vi
+            .fn()
+            .mockImplementation(async (pattern) =>
+                pattern === '%_activity_sync_state_v2'
+                    ? ['abc_activity_sync_state_v2']
+                    : []
+            );
+        await adapter.initActivityV2BigIntColumns();
+        const sqls = adapter.executeNonQuery.mock.calls.map((c) => c[0]);
+        expect(sqls).toContain(
+            'ALTER TABLE `abc_activity_sync_state_v2` MODIFY `pending_session_start_at` BIGINT'
+        );
+        expect(sqls).toContain(
+            'UPDATE `abc_activity_sync_state_v2` SET pending_session_start_at = NULL WHERE pending_session_start_at = 2147483647'
+        );
+    });
+
+    it('维护 SQL 失败仅 warn、不抛出', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        adapter.listTables = vi
+            .fn()
+            .mockImplementation(async (pattern) =>
+                pattern === '%_activity_sessions_v2'
+                    ? ['abc_activity_sessions_v2']
+                    : []
+            );
+        adapter.executeNonQuery = vi.fn().mockRejectedValue(new Error('denied'));
+        await expect(
+            adapter.initActivityV2BigIntColumns()
+        ).resolves.toBeUndefined();
+        expect(
+            warn.mock.calls.some((c) => String(c[0]).includes('INT 钳位会话行'))
+        ).toBe(true);
+        warn.mockRestore();
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
 // Bug: MySQL 原生模式二次启动 `Duplicate key name` 冒泡(Uncaught in promise)
 // 旧实现靠 catch `e.message.includes('Duplicate key name')` 幂等,但 C# 桥
 // reject 形态可能是纯字符串(`e.message` 为 undefined)→ catch 失效冒泡。

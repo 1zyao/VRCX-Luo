@@ -950,10 +950,14 @@ class MySQLAdapter extends EngineAdapter {
             ['user_id', 'created_at']
         );
         await this.executeNonQuery(
-            `CREATE TABLE IF NOT EXISTS ${this.userTable(prefix, 'activity_sync_state_v2')} (user_id VARCHAR(255) PRIMARY KEY, updated_at VARCHAR(255) NOT NULL DEFAULT '', is_self INT NOT NULL DEFAULT 0, source_last_created_at VARCHAR(255) NOT NULL DEFAULT '', pending_session_start_at INT, cached_range_days INT NOT NULL DEFAULT 0)`
+            `CREATE TABLE IF NOT EXISTS ${this.userTable(prefix, 'activity_sync_state_v2')} (user_id VARCHAR(255) PRIMARY KEY, updated_at VARCHAR(255) NOT NULL DEFAULT '', is_self INT NOT NULL DEFAULT 0, source_last_created_at VARCHAR(255) NOT NULL DEFAULT '', pending_session_start_at BIGINT, cached_range_days INT NOT NULL DEFAULT 0)`
         );
+        // start_at / end_at 存的是毫秒时间戳(activityEngine 的 Date.getTime()),
+        // 必须 BIGINT —— INT 上限 2147483647 会把值钳到 1970-01-25 并在严格模式下
+        // 直接报 "Out of range value for column 'start_at'"。SQLite 用 INTEGER /
+        // PG 用 BIGINT,此处对齐。旧库由 initActivityV2BigIntColumns() 幂等升级。
         await this.executeNonQuery(
-            `CREATE TABLE IF NOT EXISTS ${this.userTable(prefix, 'activity_sessions_v2')} (session_id INT AUTO_INCREMENT PRIMARY KEY, user_id VARCHAR(255) NOT NULL, start_at INT NOT NULL, end_at INT NOT NULL, is_open_tail INT NOT NULL DEFAULT 0, source_revision VARCHAR(255) NOT NULL DEFAULT '')`
+            `CREATE TABLE IF NOT EXISTS ${this.userTable(prefix, 'activity_sessions_v2')} (session_id INT AUTO_INCREMENT PRIMARY KEY, user_id VARCHAR(255) NOT NULL, start_at BIGINT NOT NULL, end_at BIGINT NOT NULL, is_open_tail INT NOT NULL DEFAULT 0, source_revision VARCHAR(255) NOT NULL DEFAULT '')`
         );
         await this.createIndex(
             'idx_user_start',
@@ -1157,6 +1161,28 @@ class MySQLAdapter extends EngineAdapter {
      * @returns {Promise<void>}
      */
     async _ensureLongTextColumn(table, column) {
+        await this._ensureColumnType(table, column, 'LONGTEXT');
+    }
+
+    /**
+     * 幂等升级既有表某列的类型(MySQL 专用,基类无此接口)。
+     *
+     * 仅当 INFORMATION_SCHEMA 探测到该列当前 DATA_TYPE 与 targetType 不同
+     * (大小写不敏感)时才发 `ALTER TABLE ... MODIFY ...`;类型已一致或列不
+     * 存在时直接返回(零 SQL 写)。ALTER 为尽力而为:失败(如账户缺 ALTER
+     * 权限)仅 console.warn,不阻断启动。
+     *
+     * MySQL 的 MODIFY 会用给定定义**整体替换**列定义,未复述的 NOT NULL /
+     * DEFAULT 会被丢弃,故 `columnDef` 可传入完整定义(如 'BIGINT NOT NULL'),
+     * 缺省则用 targetType 本身。
+     *
+     * @param {string} table - 表名(原始,内部经 quoteIdent 反引号转义)
+     * @param {string} column - 列名(原始,内部经 quoteIdent 反引号转义)
+     * @param {string} targetType - 目标 DATA_TYPE(用于比较与告警文案)
+     * @param {string} [columnDef] - MODIFY 的完整列定义,缺省为 targetType
+     * @returns {Promise<void>}
+     */
+    async _ensureColumnType(table, column, targetType, columnDef) {
         const rows = [];
         await this.execute(
             (row) => rows.push(row),
@@ -1165,14 +1191,89 @@ class MySQLAdapter extends EngineAdapter {
         );
         if (rows.length === 0) return;
         const dataType = String(rows[0][0]).toLowerCase();
-        if (dataType === 'longtext') return;
+        if (dataType === targetType.toLowerCase()) return;
         try {
             await this.executeNonQuery(
-                `ALTER TABLE ${this.quoteIdent(table)} MODIFY ${this.quoteIdent(column)} LONGTEXT`
+                `ALTER TABLE ${this.quoteIdent(table)} MODIFY ${this.quoteIdent(column)} ${columnDef || targetType}`
             );
         } catch (err) {
             console.warn(
-                `[mysql] 升级 ${table}.${column} 为 LONGTEXT 失败(大 JSON 写入可能超限):`,
+                `[mysql] 升级 ${table}.${column} 为 ${targetType} 失败:`,
+                err instanceof Error ? err.message : String(err)
+            );
+        }
+    }
+
+    /**
+     * 幂等升级 activity v2 的毫秒时间戳列并清理被 INT 钳死的垃圾行
+     * (MySQL 专用写方法,基类无此接口)。
+     *
+     * 背景:`activity_sessions_v2.start_at` / `end_at` 与
+     * `activity_sync_state_v2.pending_session_start_at` 存的是毫秒时间戳
+     * (`activityEngine` 的 `Date.getTime()`),旧 schema 误声明为 INT
+     * (上限 2147483647)。非严格模式把值钳成 2147483647(解码为 1970-01-25),
+     * 严格模式直接报 `Out of range value for column 'start_at'` → 活动统计
+     * 图表完全无法落缓存。SQLite 用 INTEGER / PG 用 BIGINT,本来就正确。
+     *
+     * 三步,全部幂等且失败仅 warn:
+     *   1. 三列升级为 BIGINT(仅当 INFORMATION_SCHEMA 显示仍非 bigint);
+     *   2. 删除 `start_at` / `end_at` 等于 2147483647 的行 —— 毫秒时间戳不可能
+     *      等于该值,这些行必然是钳位产物;该表是可由 `feed_online_offline` /
+     *      `gamelog_location` 重算的派生缓存,删除安全;
+     *   3. 把 `pending_session_start_at` = 2147483647 置 NULL,强制该用户重算
+     *      (钳位值不是合法游标)。
+     *
+     * 表名按用户前缀展开。与 `initValueColumnsLongText` 一样,由启动期
+     * `adapter.initActivityV2BigIntColumns?.()` 防御式调用(SQLite/PG 无此方法)。
+     *
+     * @returns {Promise<void>}
+     */
+    async initActivityV2BigIntColumns() {
+        for (const table of await this.listTables('%_activity_sessions_v2')) {
+            await this._ensureColumnType(
+                table,
+                'start_at',
+                'BIGINT',
+                'BIGINT NOT NULL'
+            );
+            await this._ensureColumnType(
+                table,
+                'end_at',
+                'BIGINT',
+                'BIGINT NOT NULL'
+            );
+            await this._warnOnlyExecute(
+                `DELETE FROM ${this.quoteIdent(table)} WHERE start_at = 2147483647 OR end_at = 2147483647`,
+                `清理 ${table} 的 INT 钳位会话行`
+            );
+        }
+        for (const table of await this.listTables('%_activity_sync_state_v2')) {
+            await this._ensureColumnType(
+                table,
+                'pending_session_start_at',
+                'BIGINT'
+            );
+            await this._warnOnlyExecute(
+                `UPDATE ${this.quoteIdent(table)} SET pending_session_start_at = NULL WHERE pending_session_start_at = 2147483647`,
+                `重置 ${table} 的 INT 钳位游标`
+            );
+        }
+    }
+
+    /**
+     * 尽力而为地执行一条维护 SQL:失败仅 console.warn,不抛出。
+     * 启动期维护操作不应因单条语句失败(如账户缺权限)拖垮整个应用。
+     *
+     * @param {string} sql
+     * @param {string} label - 告警文案上下文
+     * @returns {Promise<void>}
+     */
+    async _warnOnlyExecute(sql, label) {
+        try {
+            await this.executeNonQuery(sql);
+        } catch (err) {
+            console.warn(
+                `[mysql] ${label}失败:`,
                 err instanceof Error ? err.message : String(err)
             );
         }
