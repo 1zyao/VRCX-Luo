@@ -889,8 +889,6 @@
                     "theme_mode_pink": "Rózsaszín",
                     "theme_mode_material3": "Material 3",
                     "zoom": "Nagyítás",
-                    "vrcplus_profile_icons": "VRChat Plus profil ikonok",
-                    "vrcplus_profile_icons_description": "VRChat+ kizárólagos profilikonok használata, ha elérhető.",
                     "show_instance_id": "helyzetazonosító megjelenítése",
                     "show_status_bar": "Állapotsáv megjelenítése",
                     "age_gated_instances": "Korhatáros helyzetek megjelenítése",

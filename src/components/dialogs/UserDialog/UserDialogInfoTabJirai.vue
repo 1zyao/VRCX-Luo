@@ -107,14 +107,12 @@
             <div class="flex-1 overflow-hidden">
                 <span class="block truncate font-medium leading-[18px]">
                     {{
-                        userDialog.id !== currentUser.id &&
-                        userDialog.ref.profilePicOverride &&
-                        userDialog.ref.currentAvatarImageUrl
+                        userDialog.id !== currentUser.id && hasAvatarInfo
                             ? t('dialog.user.info.avatar_info_last_seen')
                             : t('dialog.user.info.avatar_info')
                     }}
                     <TooltipWrapper
-                        v-if="userDialog.ref.profilePicOverride && !userDialog.ref.currentAvatarImageUrl"
+                        v-if="!hasAvatarInfo && userIconUrl"
                         side="top"
                         :content="t('dialog.user.info.vrcplus_hides_avatar')">
                         <Info class="inline-block" />
@@ -123,8 +121,9 @@
                 <div class="text-xs">
                     <AvatarInfo
                         :key="userDialog.id"
-                        :imageurl="userDialog.ref.currentAvatarImageUrl"
+                        :imageurl="avatarImageUrl"
                         :userid="userDialog.id"
+                        :hintavatarname="avatarNameHint"
                         :avatartags="userDialog.ref.currentAvatarTags"
                         style="display: inline-block" />
                 </div>
@@ -589,6 +588,7 @@
     import { showGroupDialog } from '../../../coordinators/groupCoordinator';
 
     import EditNoteAndMemoDialog from './EditNoteAndMemoDialog.vue';
+    import { useUserAvatarImage } from './composables/useUserAvatarImage';
     import { database } from '../../../services/database';
     import { formatBioArchiveDiff } from '../../../shared/utils/bioArchiveDiff';
     import { formatDifference } from '../../../views/Feed/columns.jsx';
@@ -608,6 +608,8 @@
     const { lastLocation } = storeToRefs(useLocationStore());
     const { showFullscreenImageDialog } = useGalleryStore();
     const { userImage, userStatusClass } = useUserDisplay();
+    const { avatarImageUrl, avatarNameHint, hasAvatarInfo, userIconUrl } =
+        useUserAvatarImage();
 
     const bioCache = ref({
         userId: null,

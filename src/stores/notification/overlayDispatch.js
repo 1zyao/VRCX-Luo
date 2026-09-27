@@ -183,10 +183,7 @@ export function createOverlayDispatch({
                     if (!args.json) {
                         return '';
                     }
-                    if (
-                        appearanceSettingsStore.displayVRCPlusIconsAsAvatar &&
-                        args.json.iconUrl
-                    ) {
+                    if (args.json.iconUrl) {
                         return args.json.iconUrl;
                     }
                     if (args.json.profilePicOverride) {

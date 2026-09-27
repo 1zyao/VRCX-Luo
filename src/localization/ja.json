@@ -889,8 +889,6 @@
                     "theme_mode_pink": "ピンク",
                     "theme_mode_material3": "Material 3",
                     "zoom": "ズーム",
-                    "vrcplus_profile_icons": "VRC+ プロフィールアイコン",
-                    "vrcplus_profile_icons_description": "VRC+ プロフィールアイコンが使用できる場合、それを使用します",
                     "show_instance_id": "インスタンス名を表示",
                     "show_status_bar": "ステータスバーを表示",
                     "age_gated_instances": "年齢制限付きインスタンス",

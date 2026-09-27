@@ -104,28 +104,36 @@ const expandedRow = ({ row }) => {
     }
 
     if (type === 'Avatar') {
+        // VRChat 迁移后好友更新里只有 currentAvatarImageUrl 稳定存在，
+        // thumbnail 可能为空 —— 为空时用整图兜底，否则模型封面整块空白。
+        const previousCover =
+            original.previousCurrentAvatarThumbnailImageUrl ||
+            original.previousCurrentAvatarImageUrl;
+        const currentCover =
+            original.currentAvatarThumbnailImageUrl ||
+            original.currentAvatarImageUrl;
         return (
             <div class="pl-5 text-sm">
                 <div class="flex items-center">
                     <div class="inline-block align-top w-40">
-                        {original.previousCurrentAvatarThumbnailImageUrl ? (
+                        {previousCover ? (
                             <>
                                 <img
-                                    src={
-                                        original.previousCurrentAvatarThumbnailImageUrl
-                                    }
+                                    src={previousCover}
                                     class="cursor-pointer h-30 w-40 rounded pointer"
                                     loading="lazy"
                                     onClick={() =>
                                         showFullscreenImageDialog(
-                                            original.previousCurrentAvatarImageUrl
+                                            original.previousCurrentAvatarImageUrl ||
+                                                previousCover
                                         )
                                     }
                                 />
                                 <br />
                                 <AvatarInfo
                                     imageurl={
-                                        original.previousCurrentAvatarThumbnailImageUrl
+                                        original.previousCurrentAvatarImageUrl ||
+                                        previousCover
                                     }
                                     userid={original.userId}
                                     hintownerid={original.previousOwnerId}
@@ -141,24 +149,24 @@ const expandedRow = ({ row }) => {
                         <ArrowRight />
                     </span>
                     <div class="inline-block align-top w-40">
-                        {original.currentAvatarThumbnailImageUrl ? (
+                        {currentCover ? (
                             <>
                                 <img
-                                    src={
-                                        original.currentAvatarThumbnailImageUrl
-                                    }
+                                    src={currentCover}
                                     class="cursor-pointer h-30 w-40 rounded pointer"
                                     loading="lazy"
                                     onClick={() =>
                                         showFullscreenImageDialog(
-                                            original.currentAvatarImageUrl
+                                            original.currentAvatarImageUrl ||
+                                                currentCover
                                         )
                                     }
                                 />
                                 <br />
                                 <AvatarInfo
                                     imageurl={
-                                        original.currentAvatarThumbnailImageUrl
+                                        original.currentAvatarImageUrl ||
+                                        currentCover
                                     }
                                     userid={original.userId}
                                     hintownerid={original.ownerId}
@@ -410,7 +418,10 @@ export const columns = [
                 return (
                     <div class="w-full min-w-0 truncate">
                         <AvatarInfo
-                            imageurl={original.currentAvatarImageUrl}
+                            imageurl={
+                                original.currentAvatarImageUrl ||
+                                original.currentAvatarThumbnailImageUrl
+                            }
                             userid={original.userId}
                             hintownerid={original.ownerId}
                             hintavatarname={original.avatarName}

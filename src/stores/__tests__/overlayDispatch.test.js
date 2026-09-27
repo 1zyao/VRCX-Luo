@@ -94,9 +94,8 @@ describe('notyGetImage', () => {
         expect(result).toBe('https://profile.jpg');
     });
 
-    test('returns iconUrl when displayVRCPlusIconsAsAvatar is enabled', async () => {
+    test('returns iconUrl first (no appearance setting involved)', async () => {
         deps.getUserIdFromNoty.mockReturnValue('usr_abc');
-        deps.appearanceSettingsStore.displayVRCPlusIconsAsAvatar = true;
         deps.queryRequest.fetch.mockResolvedValue({
             json: {
                 iconUrl: 'https://icon.jpg',

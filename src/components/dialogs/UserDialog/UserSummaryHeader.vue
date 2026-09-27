@@ -5,25 +5,23 @@
             class="shrink-0 overflow-hidden rounded-xl"
             style="height: 120px; width: 160px">
             <img
-                v-if="
-                    !userDialog.loading &&
-                    !profileImageError &&
-                    (userDialog.ref.profilePicOverrideThumbnail || userDialog.ref.profilePicOverride)
-                "
+                v-if="!userDialog.loading && !profileImageError && modelImageUrl"
                 class="cursor-pointer"
-                :src="userDialog.ref.profilePicOverrideThumbnail || userDialog.ref.profilePicOverride"
+                :src="modelImageUrl"
                 style="height: 120px; width: 160px; border-radius: var(--radius-xl); object-fit: cover"
-                @click="showFullscreenImageDialog(userDialog.ref.profilePicOverride)"
+                @click="showFullscreenImageDialog(modelFullImageUrl)"
                 @error="profileImageError = true"
                 loading="lazy" />
-            <img
-                v-else-if="!userDialog.loading && !profileImageError && userDialog.ref.currentAvatarThumbnailImageUrl"
-                class="cursor-pointer"
-                :src="userDialog.ref.currentAvatarThumbnailImageUrl"
-                style="height: 120px; width: 160px; border-radius: var(--radius-xl); object-fit: cover"
-                @click="showFullscreenImageDialog(userDialog.ref.currentAvatarImageUrl)"
-                @error="profileImageError = true"
-                loading="lazy" />
+            <TooltipWrapper
+                v-else-if="!userDialog.loading && !hasModelImage && userIconUrl"
+                side="top"
+                :content="t('dialog.user.info.vrcplus_hides_avatar')">
+                <div
+                    class="flex items-center justify-center bg-muted"
+                    style="height: 120px; width: 160px; border-radius: var(--radius-xl)">
+                    <Image class="size-8 text-muted-foreground" />
+                </div>
+            </TooltipWrapper>
             <div
                 v-else-if="!userDialog.loading"
                 class="flex items-center justify-center bg-muted"
@@ -305,13 +303,13 @@
                 </div>
             </div>
 
-            <div v-if="userDialog.publicProfileRef?.iconUrl" class="shrink-0">
+            <div v-if="userIconUrl" data-testid="user-summary-icon" class="shrink-0">
                 <img
                     v-if="!userIconError"
                     class="cursor-pointer"
-                    :src="userImage(userDialog.publicProfileRef, true, '256', true)"
+                    :src="userImage({ iconUrl: userIconUrl }, true, '256')"
                     style="flex: none; width: 120px; height: 120px; border-radius: var(--radius-xl); object-fit: cover"
-                    @click="showFullscreenImageDialog(userDialog.publicProfileRef?.iconUrl)"
+                    @click="showFullscreenImageDialog(userIconUrl)"
                     @error="userIconError = true"
                     loading="lazy" />
                 <div
@@ -366,6 +364,7 @@
 
     import UserActionDropdown from './UserActionDropdown.vue';
     import { buildTrustLevelTimeline } from './trustLevelHistory';
+    import { useUserAvatarImage } from './composables/useUserAvatarImage';
 
     const props = defineProps({
         getUserStateText: {
@@ -404,6 +403,21 @@
     const trustHistoryLoading = ref(false);
     const trustHistoryRows = ref([]);
     const trustHistoryLoadedUserId = ref('');
+
+    /**
+     * 右上方形 = 玩家头像（`iconUrl`，迁移后唯一稳定存在的头像字段，原版 VRCX
+     * #1886「Remove Profile Icon Toggle」无条件使用它）。
+     * 左上大图 = 模型封面，取数顺序见 useUserAvatarImage：
+     * currentAvatar* → iconUrl（本身是模型图时）→ 本机记录过的封面 → 占位+提示。
+     */
+    const {
+        avatarImageUrl,
+        avatarThumbnailImageUrl,
+        hasAvatarInfo: hasModelImage,
+        userIconUrl
+    } = useUserAvatarImage();
+    const modelImageUrl = avatarThumbnailImageUrl;
+    const modelFullImageUrl = avatarImageUrl;
 
     const isCurrentUserAutoFollowTarget = computed(
         () => autoFollowStore.isActive && autoFollowStore.targetFriendId === userDialog.value.id
