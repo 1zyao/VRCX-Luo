@@ -190,6 +190,9 @@ export function createDefaultUserRef(json) {
         displayName: '',
         friendKey: '',
         friendRequestStatus: '',
+        // iconUrl 必须存在于模板里，否则 diffObjectProps 会跳过它 →
+        // 模型变更（props.iconUrl）永远检测不到、Feed 里看不到「模型变动」。
+        iconUrl: '',
         id: '',
         instanceId: '',
         isFriend: false,

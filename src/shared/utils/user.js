@@ -179,44 +179,23 @@ function statusClass(status) {
 }
 
 /**
+ * 头像（user icon）。VRChat profile 端点迁移后 `iconUrl` 是唯一稳定存在的头像字段，
+ * 原版 VRCX 因此无条件优先 `iconUrl`，不再看 `userIcon` / `profilePicOverride`，
+ * 同时移除了「VRC+ 个人资料图标」开关（vrcx-team/VRCX#1886）。
  * @param {object} user - User Ref Object
  * @param {boolean} isIcon - is use for icon (about 40x40)
  * @param {string} resolution - requested icon resolution (default 128),
- * @param {boolean} isUserDialogIcon - is use for user dialog icon
- * @param {boolean} displayVRCPlusIconsAsAvatar - from appearance settings store
  * @returns {string} - img url
  */
-function userImage(
-    user,
-    isIcon = false,
-    resolution = '128',
-    isUserDialogIcon = false,
-    displayVRCPlusIconsAsAvatar = false
-) {
+function userImage(user, isIcon = false, resolution = '128') {
     if (!user) {
         return '';
     }
-    if (
-        (isUserDialogIcon && user.iconUrl) ||
-        (displayVRCPlusIconsAsAvatar && user.iconUrl)
-    ) {
+    if (user.iconUrl) {
         if (isIcon) {
             return convertFileUrlToImageUrl(user.iconUrl);
         }
         return user.iconUrl;
-    }
-
-    if (user.profilePicOverrideThumbnail) {
-        if (isIcon) {
-            return user.profilePicOverrideThumbnail.replace(
-                '/256',
-                `/${resolution}`
-            );
-        }
-        return user.profilePicOverrideThumbnail;
-    }
-    if (user.profilePicOverride) {
-        return user.profilePicOverride;
     }
     if (user.thumbnailUrl) {
         return user.thumbnailUrl;
@@ -242,14 +221,13 @@ function userImage(
 /**
  *
  * @param {object} user
- * @param {boolean} displayVRCPlusIconsAsAvatar - from appearance settings store
  * @returns {string|*}
  */
-function userImageFull(user, displayVRCPlusIconsAsAvatar = false) {
+function userImageFull(user) {
     if (!user) {
         return '';
     }
-    if (displayVRCPlusIconsAsAvatar && user.iconUrl) {
+    if (user.iconUrl) {
         return user.iconUrl;
     }
     if (user.profilePicOverride) {

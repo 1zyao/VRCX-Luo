@@ -137,6 +137,15 @@ describe('AvatarInfo.vue', () => {
             expect(wrapper.text()).toContain('Cool Avatar');
         });
 
+        test('shows hintavatarname even without hintownerid (profile endpoint name)', () => {
+            const wrapper = mountAvatarInfo({
+                imageurl: 'https://example.com/avatar.png',
+                hintavatarname: 'Cool Avatar'
+            });
+            expect(wrapper.text()).toContain('Cool Avatar');
+            expect(wrapper.find('.lucide-lock').exists()).toBe(false);
+        });
+
         test('shows empty when no imageurl', () => {
             const wrapper = mountAvatarInfo({});
             expect(wrapper.text().trim()).toBe('Unknown Avatar');

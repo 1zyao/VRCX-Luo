@@ -4,7 +4,6 @@ import { database } from '../services/database';
 import { getAvatarName } from './avatarCoordinator';
 import { useFeedStore } from '../stores/feed';
 import { useFriendStore } from '../stores/friend';
-import { useGeneralSettingsStore } from '../stores/settings/general';
 import { useGroupStore } from '../stores/group';
 import { useInstanceStore } from '../stores/instance';
 import { useNotificationStore } from '../stores/notification';
@@ -34,7 +33,6 @@ export async function runHandleUserUpdateFlow(
     const feedStore = useFeedStore();
     const notificationStore = useNotificationStore();
     const sharedFeedStore = useSharedFeedStore();
-    const generalSettingsStore = useGeneralSettingsStore();
 
     const { state, userDialog, applyUserDialogLocation, checkNote } = userStore;
 
@@ -160,111 +158,49 @@ export async function runHandleUserUpdateFlow(
         ref.$previousLocation = props.location[1];
         ref.$travelingToTime = now();
     }
-    // 触发：缩略图（或其他模型相关字段）变化 → 进入下面的探测
-    // （imageMatches：缩略图新旧相等 → 视为未触发）
-    let imageMatches = false;
-    if (
-        props.currentAvatarThumbnailImageUrl &&
-        props.currentAvatarThumbnailImageUrl[0] &&
-        props.currentAvatarThumbnailImageUrl[1] &&
-        props.currentAvatarThumbnailImageUrl[0] ===
-            props.currentAvatarThumbnailImageUrl[1]
-    ) {
-        imageMatches = true;
-    }
-    if (
-        (((props.currentAvatarImageUrl ||
-            props.currentAvatarThumbnailImageUrl) &&
-            !ref.profilePicOverride) ||
-            props.currentAvatarTags) &&
-        !imageMatches
-    ) {
-        let currentAvatarImageUrl = '';
-        let previousCurrentAvatarImageUrl = '';
-        let currentAvatarThumbnailImageUrl = '';
-        let previousCurrentAvatarThumbnailImageUrl = '';
-        let currentAvatarTags = '';
-        let previousCurrentAvatarTags = '';
-        if (props.currentAvatarImageUrl) {
-            currentAvatarImageUrl = props.currentAvatarImageUrl[0];
-            previousCurrentAvatarImageUrl = props.currentAvatarImageUrl[1];
-        } else {
-            currentAvatarImageUrl = ref.currentAvatarImageUrl;
-            previousCurrentAvatarImageUrl = ref.currentAvatarImageUrl;
+    // 模型变更：VRChat profile 端点迁移后 `currentAvatarImageUrl` 不再随 user 对象返回，
+    // 原版 VRCX 改为看 `iconUrl`（玩家头像）—— 没设自定义头像时它就是当前模型图。
+    // 判定沿袭原版只用 `ownerId`（宽松）：宁可名字查不到，也不要漏记模型变更。
+    if (props.iconUrl && props.iconUrl[0]) {
+        const currentIconUrl = props.iconUrl[0];
+        const previousIconUrl = props.iconUrl[1];
+        let avatarInfo = {
+            ownerId: '',
+            avatarName: ''
+        };
+        try {
+            avatarInfo = await getAvatarName(currentIconUrl);
+        } catch (err) {
+            console.log(err);
         }
-        if (props.currentAvatarThumbnailImageUrl) {
-            currentAvatarThumbnailImageUrl =
-                props.currentAvatarThumbnailImageUrl[0];
-            previousCurrentAvatarThumbnailImageUrl =
-                props.currentAvatarThumbnailImageUrl[1];
-        } else {
-            currentAvatarThumbnailImageUrl = ref.currentAvatarThumbnailImageUrl;
-            previousCurrentAvatarThumbnailImageUrl =
-                ref.currentAvatarThumbnailImageUrl;
-        }
-        if (props.currentAvatarTags) {
-            currentAvatarTags = props.currentAvatarTags[0];
-            previousCurrentAvatarTags = props.currentAvatarTags[1];
-            if (
-                ref.profilePicOverride &&
-                !props.currentAvatarThumbnailImageUrl
-            ) {
-                // forget last seen avatar
-                ref.currentAvatarImageUrl = '';
-                ref.currentAvatarThumbnailImageUrl = '';
-            }
-        } else {
-            currentAvatarTags = ref.currentAvatarTags;
-            previousCurrentAvatarTags = ref.currentAvatarTags;
-        }
-        if (generalSettingsStore.logEmptyAvatars || ref.currentAvatarImageUrl) {
-            let avatarInfo = {
-                ownerId: '',
-                avatarName: ''
-            };
-            try {
-                avatarInfo = await getAvatarName(currentAvatarImageUrl);
-            } catch (err) {
-                console.log(err);
-            }
+        if (avatarInfo.ownerId) {
             let previousAvatarInfo = {
                 ownerId: '',
                 avatarName: ''
             };
             try {
-                previousAvatarInfo = await getAvatarName(
-                    previousCurrentAvatarImageUrl
-                );
+                previousAvatarInfo = await getAvatarName(previousIconUrl);
             } catch (err) {
                 console.log(err);
             }
-            // 验证：模型实际是否变更（与全量同步同源 —— 以模型图片 URL 为准）
-            // 图片 URL 未变（仅缩略图/标签变化，如启动时离线好友缩略图 空→有值、
-            // 自定义头像占位图等）→ 不是真实换模型 → 不落库。
-            // 注意：diffObjectProps 会把"新旧相等"的图片字段从 props 中删除，故须
-            // 比较含 ref 回退后的有效值 cur vs prev。
-            if (currentAvatarImageUrl !== previousCurrentAvatarImageUrl) {
-                feed = {
-                    created_at: nowIso(),
-                    type: 'Avatar',
-                    userId: ref.id,
-                    displayName: ref.displayName,
-                    ownerId: avatarInfo.ownerId,
-                    previousOwnerId: previousAvatarInfo.ownerId,
-                    avatarName: avatarInfo.avatarName,
-                    previousAvatarName: previousAvatarInfo.avatarName,
-                    currentAvatarImageUrl,
-                    currentAvatarThumbnailImageUrl,
-                    previousCurrentAvatarImageUrl,
-                    previousCurrentAvatarThumbnailImageUrl,
-                    currentAvatarTags,
-                    previousCurrentAvatarTags
-                };
-                notificationStore.queueFeedNoty(feed);
-                sharedFeedStore.addEntry(feed);
-                feedStore.addFeedEntry(feed);
-                database.addAvatarToDatabase(feed);
-            }
+            feed = {
+                created_at: nowIso(),
+                type: 'Avatar',
+                userId: ref.id,
+                displayName: ref.displayName,
+                ownerId: avatarInfo.ownerId,
+                previousOwnerId: previousAvatarInfo.ownerId,
+                avatarName: avatarInfo.avatarName,
+                previousAvatarName: previousAvatarInfo.avatarName,
+                currentAvatarImageUrl: currentIconUrl,
+                currentAvatarThumbnailImageUrl: currentIconUrl,
+                previousCurrentAvatarImageUrl: previousIconUrl,
+                previousCurrentAvatarThumbnailImageUrl: previousIconUrl
+            };
+            notificationStore.queueFeedNoty(feed);
+            sharedFeedStore.addEntry(feed);
+            feedStore.addFeedEntry(feed);
+            database.addAvatarToDatabase(feed);
         }
     }
     // if status is offline, ignore status and statusDescription

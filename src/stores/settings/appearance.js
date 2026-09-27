@@ -60,7 +60,6 @@ export const useAppearanceSettingsStore = defineStore(
         const appFontFamily = ref('inter');
         const customFontFamily = ref('');
         const appCjkFontPack = ref(APP_CJK_FONT_PACK_DEFAULT_KEY);
-        const displayVRCPlusIconsAsAvatar = ref(false);
         const hideNicknames = ref(false);
         const showInstanceIdInLocation = ref(false);
         const isAgeGatedInstancesVisible = ref(false);
@@ -151,7 +150,6 @@ export const useAppearanceSettingsStore = defineStore(
                     : 'dark';
             const [
                 appLanguageConfig,
-                displayVRCPlusIconsAsAvatarConfig,
                 hideNicknamesConfig,
                 showInstanceIdInLocationConfig,
                 isAgeGatedInstancesVisibleConfig,
@@ -190,7 +188,6 @@ export const useAppearanceSettingsStore = defineStore(
                 lastDarkThemeConfig
             ] = await Promise.all([
                 configRepository.getString('VRCX_appLanguage'),
-                configRepository.getBool('displayVRCPlusIconsAsAvatar', true),
                 configRepository.getBool('VRCX_hideNicknames', false),
                 configRepository.getBool(
                     'VRCX_showInstanceIdInLocation',
@@ -307,8 +304,6 @@ export const useAppearanceSettingsStore = defineStore(
                 );
             }
 
-            displayVRCPlusIconsAsAvatar.value =
-                displayVRCPlusIconsAsAvatarConfig;
             hideNicknames.value = hideNicknamesConfig;
             showInstanceIdInLocation.value = showInstanceIdInLocationConfig;
             isAgeGatedInstancesVisible.value = isAgeGatedInstancesVisibleConfig;
@@ -610,17 +605,6 @@ export const useAppearanceSettingsStore = defineStore(
             applyAppCjkFontPack(normalized);
         }
 
-        /**
-         *
-         */
-        function setDisplayVRCPlusIconsAsAvatar() {
-            displayVRCPlusIconsAsAvatar.value =
-                !displayVRCPlusIconsAsAvatar.value;
-            configRepository.setBool(
-                'displayVRCPlusIconsAsAvatar',
-                displayVRCPlusIconsAsAvatar.value
-            );
-        }
         /**
          *
          */
@@ -1213,7 +1197,6 @@ export const useAppearanceSettingsStore = defineStore(
             isDarkMode,
             appFontFamily,
             appCjkFontPack,
-            displayVRCPlusIconsAsAvatar,
             hideNicknames,
             showInstanceIdInLocation,
             isAgeGatedInstancesVisible,
@@ -1257,7 +1240,6 @@ export const useAppearanceSettingsStore = defineStore(
             SEARCH_LIMIT_MAX,
 
             setAppLanguage,
-            setDisplayVRCPlusIconsAsAvatar,
             setHideNicknames,
             setShowInstanceIdInLocation,
             setIsAgeGatedInstancesVisible,

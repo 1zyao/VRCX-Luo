@@ -44,20 +44,24 @@
         avatarType.value = '';
         avatarTags.value = '';
 
-        if (!props.imageurl) {
-            avatarName.value = '';
-        } else if (props.hintownerid) {
-            if (typeof props.hintavatarname === 'string') {
-                avatarName.value = props.hintavatarname;
-            }
-            ownerId = props.hintownerid;
-        } else {
-            try {
-                const info = await getAvatarName(props.imageurl);
-                avatarName.value = info.avatarName;
-                ownerId = info.ownerId;
-            } catch {
-                console.error('Failed to fetch avatar name');
+        const hintName = typeof props.hintavatarname === 'string' ? props.hintavatarname : '';
+
+        if (hintName) {
+            // profile 端点会直接给到模型名（currentAvatarName），而且不一定带作者 id；
+            // 这种时候直接用名字，不再依赖图片文件名反查（迁移后经常查不到）
+            avatarName.value = hintName;
+            ownerId = props.hintownerid || '';
+        } else if (props.imageurl) {
+            if (props.hintownerid) {
+                ownerId = props.hintownerid;
+            } else {
+                try {
+                    const info = await getAvatarName(props.imageurl);
+                    avatarName.value = info.avatarName;
+                    ownerId = info.ownerId;
+                } catch {
+                    console.error('Failed to fetch avatar name');
+                }
             }
         }
 
@@ -79,5 +83,15 @@
         showAvatarAuthorDialog(props.userid, ownerId, props.imageurl);
     };
 
-    watch([() => props.imageurl, () => props.userid, () => props.avatartags], parse, { immediate: true });
+    watch(
+        [
+            () => props.imageurl,
+            () => props.userid,
+            () => props.avatartags,
+            () => props.hintavatarname,
+            () => props.hintownerid
+        ],
+        parse,
+        { immediate: true }
+    );
 </script>

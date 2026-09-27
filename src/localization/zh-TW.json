@@ -867,8 +867,6 @@
                     "theme_mode_pink": "粉色",
                     "theme_mode_material3": "Material 3",
                     "zoom": "介面縮放",
-                    "vrcplus_profile_icons": "VRChat+ 個人資料圖示",
-                    "vrcplus_profile_icons_description": "在可用的情況下，使用 VRChat+ 獨家設定檔圖示。",
                     "show_instance_id": "顯示房間 ID",
                     "show_status_bar": "顯示狀態列",
                     "age_gated_instances": "年齡限制房間",

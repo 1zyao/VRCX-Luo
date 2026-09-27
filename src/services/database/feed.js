@@ -407,6 +407,36 @@ const feed = {
         };
     },
 
+    /**
+     * 最近一次记录到的模型封面（feed_avatar 变更事件）。
+     * 用于资料页：VRChat 不返回某玩家的 currentAvatar* 时（例如他设了 VRC+ 头像、
+     * 或本节点还没收到 WS 更新），退回本地记录过的封面，而不是拿头像顶替。
+     * @param {string} userId
+     * @returns {Promise<{currentAvatarImageUrl: string, currentAvatarThumbnailImageUrl: string, createdAt: string}|null>}
+     */
+    async getLastAvatarChangeForUser(userId) {
+        const rows = await adapter.selectWhere(
+            adapter.userTable(dbVars.userPrefix, 'feed_avatar'),
+            [
+                'current_avatar_image_url',
+                'current_avatar_thumbnail_image_url',
+                'avatar_name',
+                'created_at'
+            ],
+            "user_id = @userId AND ((current_avatar_image_url IS NOT NULL AND current_avatar_image_url != '') OR (current_avatar_thumbnail_image_url IS NOT NULL AND current_avatar_thumbnail_image_url != ''))",
+            { userId },
+            { order: 'id DESC', limit: 1 }
+        );
+        if (rows.length === 0) return null;
+        const row = rows[0];
+        return {
+            currentAvatarImageUrl: row[0] || '',
+            currentAvatarThumbnailImageUrl: row[1] || '',
+            avatarName: row[2] || '',
+            createdAt: row[3]
+        };
+    },
+
     async getRecentBioChangesForUser(userId, limit = 50) {
         const rows = await adapter.selectWhere(
             adapter.userTable(dbVars.userPrefix, 'feed_bio'),

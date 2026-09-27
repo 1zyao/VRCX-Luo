@@ -11,15 +11,13 @@ import {
  * @param {object} deps.queryRequest
  * @param {object} deps.notificationsSettingsStore
  * @param {object} deps.advancedSettingsStore
- * @param {object} deps.appearanceSettingsStore
  * @returns {object} The overlay dispatch functions
  */
 export function createOverlayDispatch({
     getUserIdFromNoty,
     queryRequest,
     notificationsSettingsStore,
-    advancedSettingsStore,
-    appearanceSettingsStore
+    advancedSettingsStore
 }) {
     /**
      *
@@ -183,10 +181,7 @@ export function createOverlayDispatch({
                     if (!args.json) {
                         return '';
                     }
-                    if (
-                        appearanceSettingsStore.displayVRCPlusIconsAsAvatar &&
-                        args.json.iconUrl
-                    ) {
+                    if (args.json.iconUrl) {
                         return args.json.iconUrl;
                     }
                     if (args.json.profilePicOverride) {
